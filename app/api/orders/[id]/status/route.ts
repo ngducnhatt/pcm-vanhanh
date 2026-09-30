@@ -43,13 +43,13 @@ export async function POST(
 
     // Handle standard role actions
     if (action === 'receive_kho') {
-      if (!canPerformAction(currentUser.role, 'receive_kho', currentStatus)) {
+      if (!canPerformAction(currentUser.roles, 'receive_kho', currentStatus)) {
         return NextResponse.json({ error: 'Không có quyền tiếp nhận đơn vào kho' }, { status: 403 });
       }
       nextStatus = 'kho_pending';
       defaultNote = defaultNote || 'Kho đã tiếp nhận đơn hàng, sẵn sàng xuất';
     } else if (action === 'complete_kithuat') {
-      if (!canPerformAction(currentUser.role, 'complete_kithuat', currentStatus)) {
+      if (!canPerformAction(currentUser.roles, 'complete_kithuat', currentStatus)) {
         return NextResponse.json(
           { error: 'Chỉ kỹ thuật viên hoặc Admin mới có quyền xác nhận hoàn thành kỹ thuật' },
           { status: 403 }
@@ -80,7 +80,7 @@ export async function POST(
           ? 'Chuyển sang bộ phận Bảo Hành theo tag bảo hành'
           : 'Chuyển sang bộ phận Giao Hàng (kỹ thuật hoàn tất)';
     } else if (action === 'complete_baohanh') {
-      if (!canPerformAction(currentUser.role, 'complete_baohanh', currentStatus)) {
+      if (!canPerformAction(currentUser.roles, 'complete_baohanh', currentStatus)) {
         return NextResponse.json(
           { error: 'Chỉ nhân viên bảo hành hoặc Admin mới có quyền xác nhận bảo hành' },
           { status: 403 }
@@ -107,13 +107,13 @@ export async function POST(
       nextStatus = afterBaohanh;
       defaultNote = 'Chuyển sang bộ phận Giao Hàng (bảo hành hoàn tất)';
     } else if (action === 'start_delivery') {
-      if (!canPerformAction(currentUser.role, 'start_delivery', currentStatus)) {
+      if (!canPerformAction(currentUser.roles, 'start_delivery', currentStatus)) {
         return NextResponse.json({ error: 'Không có quyền nhận đơn đi giao' }, { status: 403 });
       }
       nextStatus = 'ship_dangiao';
       defaultNote = defaultNote || 'Shipper đã lấy hàng và đang trên đường đi giao';
     } else if (action === 'complete_delivery') {
-      if (!canPerformAction(currentUser.role, 'complete_delivery', currentStatus)) {
+      if (!canPerformAction(currentUser.roles, 'complete_delivery', currentStatus)) {
         return NextResponse.json({ error: 'Không có quyền xác nhận giao hàng' }, { status: 403 });
       }
       nextStatus = 'ship_done';

@@ -1,6 +1,5 @@
 import React from "react"
 import type { Metadata } from 'next'
-import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
 // Ca hai font deu duoc tu host trong /public/fonts va khai bao bang @font-face
@@ -60,7 +59,6 @@ export default function RootLayout({
           {children}
           <Toaster richColors position="top-right" />
         </AuthProvider>
-        <Analytics />
       </body>
     </html>
   );

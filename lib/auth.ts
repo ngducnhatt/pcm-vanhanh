@@ -19,15 +19,24 @@ export interface RequestMeta {
   userAgent?: string | null;
 }
 
-const USER_COLUMNS = 'id, name, phone, email, role, is_active, created_at, username, last_login_at, locked_until, failed_login_count';
+const USER_COLUMNS = 'id, name, phone, email, is_active, created_at, username, last_login_at, locked_until, failed_login_count';
 
-function toAuthUser(row: any): AuthUser {
+async function getUserRoles(userId: string): Promise<Role[]> {
+  const db = getDb();
+  const result = await db
+    .prepare('SELECT role FROM user_roles WHERE user_id = ?')
+    .bind(userId)
+    .all<{ role: Role }>();
+  return (result.results || []).map((row) => row.role);
+}
+
+function toAuthUser(row: any, roles: Role[]): AuthUser {
   return {
     id: row.id,
     name: row.name,
     phone: row.phone ?? null,
     email: row.email,
-    role: row.role as Role,
+    roles,
     is_active: row.is_active,
     created_at: row.created_at,
     username: row.username ?? null,
@@ -51,7 +60,9 @@ function newId(prefix: string): string {
 export async function getUserById(id: string): Promise<AuthUser | null> {
   const db = getDb();
   const row = await db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`).bind(id).first<any>();
-  return row ? toAuthUser(row) : null;
+  if (!row) return null;
+  const roles = await getUserRoles(id);
+  return toAuthUser(row, roles);
 }
 
 /**
@@ -60,10 +71,12 @@ export async function getUserById(id: string): Promise<AuthUser | null> {
 export async function getUserByUsername(username: string): Promise<AuthUser | null> {
   const db = getDb();
   const row = await db
-    .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE username = ? COLLATE NOCASE`)
+    .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE LOWER(username) = LOWER(?)`)
     .bind(username)
     .first<any>();
-  return row ? toAuthUser(row) : null;
+  if (!row) return null;
+  const roles = await getUserRoles(row.id);
+  return toAuthUser(row, roles);
 }
 
 /**
@@ -74,10 +87,12 @@ export async function getUserCredentialsByUsername(
 ): Promise<(AuthUser & { password_hash: string | null }) | null> {
   const db = getDb();
   const row = await db
-    .prepare(`SELECT ${USER_COLUMNS}, password_hash FROM users WHERE username = ? COLLATE NOCASE`)
+    .prepare(`SELECT ${USER_COLUMNS}, password_hash FROM users WHERE LOWER(username) = LOWER(?)`)
     .bind(username)
     .first<any>();
-  return row ? { ...toAuthUser(row), password_hash: row.password_hash ?? null } : null;
+  if (!row) return null;
+  const roles = await getUserRoles(row.id);
+  return { ...toAuthUser(row, roles), password_hash: row.password_hash ?? null };
 }
 
 /**
@@ -86,9 +101,13 @@ export async function getUserCredentialsByUsername(
 export async function getAllUsers(): Promise<AuthUser[]> {
   const db = getDb();
   const result = await db
-    .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE is_active = 1 ORDER BY role, name`)
+    .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE is_active = 1 ORDER BY name`)
     .all<any>();
-  return (result.results || []).map(toAuthUser);
+  const users = result.results || [];
+  return Promise.all(users.map(async (row) => {
+    const roles = await getUserRoles(row.id);
+    return toAuthUser(row, roles);
+  }));
 }
 
 /**
@@ -97,10 +116,14 @@ export async function getAllUsers(): Promise<AuthUser[]> {
 export async function getUsersByRole(role: Role): Promise<AuthUser[]> {
   const db = getDb();
   const result = await db
-    .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE role = ? AND is_active = 1 ORDER BY name`)
+    .prepare(`SELECT ${USER_COLUMNS} FROM users u INNER JOIN user_roles ur ON u.id = ur.user_id WHERE ur.role = ? AND u.is_active = 1 ORDER BY u.name`)
     .bind(role)
     .all<any>();
-  return (result.results || []).map(toAuthUser);
+  const users = result.results || [];
+  return Promise.all(users.map(async (row) => {
+    const roles = await getUserRoles(row.id);
+    return toAuthUser(row, roles);
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +378,8 @@ export async function validateSessionToken(token: string): Promise<AuthUser | nu
     await db.prepare('UPDATE sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?').bind(sessionId).run();
   }
 
-  return toAuthUser(row);
+  const roles = await getUserRoles(row.id);
+  return toAuthUser(row, roles);
 }
 
 export async function destroySession(token: string): Promise<void> {
@@ -428,7 +452,7 @@ export async function requireUser(): Promise<AuthUser> {
  */
 export async function requirePermission(permission: Permission): Promise<AuthUser> {
   const user = await requireUser();
-  if (!can(user.role, permission)) {
+  if (!can(user.roles, permission)) {
     throw new AuthError('Bạn không có quyền thực hiện thao tác này', 403, 'forbidden');
   }
   return user;

@@ -1,152 +1,164 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { toast } from "sonner";
+import type { Product } from "@/lib/types";
 import {
   SECTION_SUBTITLE,
   SECTION_TITLE,
   chip,
   type Tone,
 } from "@/lib/ui";
-import {
-  CheckCircle2,
-  Filter,
-  Hash,
-  PackagePlus,
-  Search,
-  Tag,
-  Warehouse,
-} from "lucide-react";
+import { Filter, PackagePlus, RefreshCw, Search, Tag } from "lucide-react";
+import { useAuth } from "@/components/auth-context";
+import { can } from "@/lib/permissions";
 
-interface InventoryItem {
-  id: string;
-  code: string;
-  name: string;
-  quantity: number;
-  serial?: string;
-  location: string;
-  status: "Sẵn sàng" | "Đang dùng" | "Sắp hết";
-}
-
-interface InventoryCategory {
-  id: string;
-  name: string;
-  items: InventoryItem[];
-}
-
-const inventoryCategories: InventoryCategory[] = [
-  {
-    id: "cpu",
-    name: "CPU",
-    items: [
-      { id: "cpu-1", code: "CPU-I5-12400F", name: "Intel Core i5-12400F", quantity: 18, serial: "CPU12400F-0018", location: "Kệ A-01", status: "Sẵn sàng" },
-      { id: "cpu-2", code: "CPU-R5-5600", name: "AMD Ryzen 5 5600", quantity: 7, location: "Kệ A-01", status: "Sắp hết" },
-    ],
-  },
-  {
-    id: "main",
-    name: "MAIN",
-    items: [
-      { id: "main-1", code: "MAIN-B660M", name: "MSI PRO B660M-A WIFI", quantity: 12, serial: "MSIB660-0012", location: "Kệ A-02", status: "Sẵn sàng" },
-      { id: "main-2", code: "MAIN-B550M", name: "ASUS TUF GAMING B550M", quantity: 5, location: "Kệ A-02", status: "Sắp hết" },
-    ],
-  },
-  {
-    id: "ram",
-    name: "RAM",
-    items: [
-      { id: "ram-1", code: "RAM-DDR4-16", name: "Kingston Fury 16GB DDR4", quantity: 36, location: "Kệ B-01", status: "Sẵn sàng" },
-      { id: "ram-2", code: "RAM-DDR5-32", name: "Corsair Vengeance 32GB DDR5", quantity: 9, serial: "CORDDR5-0009", location: "Kệ B-01", status: "Sẵn sàng" },
-    ],
-  },
-  {
-    id: "vga",
-    name: "VGA",
-    items: [
-      { id: "vga-1", code: "VGA-RTX4060", name: "ASUS Dual RTX 4060 8GB", quantity: 8, serial: "RTX4060-0008", location: "Kệ B-02", status: "Sẵn sàng" },
-      { id: "vga-2", code: "VGA-RX7600", name: "Sapphire RX 7600 8GB", quantity: 3, serial: "RX7600-0003", location: "Kệ B-02", status: "Sắp hết" },
-    ],
-  },
-  {
-    id: "arm",
-    name: "ARM",
-    items: [{ id: "arm-1", code: "ARM-MON-01", name: "Arm màn hình đôi NB F160", quantity: 14, location: "Kệ C-01", status: "Sẵn sàng" }],
-  },
-  {
-    id: "disk",
-    name: "DISK",
-    items: [
-      { id: "disk-1", code: "SSD-NVME-1T", name: "WD Blue SN580 1TB NVMe", quantity: 21, serial: "WDSN580-0021", location: "Kệ C-02", status: "Sẵn sàng" },
-      { id: "disk-2", code: "SSD-SATA-480", name: "Kingston A400 480GB", quantity: 6, location: "Kệ C-02", status: "Sắp hết" },
-    ],
-  },
-  {
-    id: "cooling",
-    name: "COOLING",
-    items: [{ id: "cooling-1", code: "COOL-PA120", name: "Thermalright Peerless Assassin 120", quantity: 11, location: "Kệ D-01", status: "Sẵn sàng" }],
-  },
-  {
-    id: "case",
-    name: "CASE",
-    items: [{ id: "case-1", code: "CASE-MESH-01", name: "Montech Air 100 ARGB", quantity: 16, location: "Kệ D-02", status: "Sẵn sàng" }],
-  },
-  {
-    id: "psu",
-    name: "PSU",
-    items: [{ id: "psu-1", code: "PSU-650W-BZ", name: "Cooler Master MWE 650 Bronze", quantity: 10, location: "Kệ D-03", status: "Sẵn sàng" }],
-  },
-  {
-    id: "fan",
-    name: "FAN",
-    items: [{ id: "fan-1", code: "FAN-120-ARGB", name: "Cooler Master SickleFlow 120 ARGB", quantity: 28, location: "Kệ D-04", status: "Sẵn sàng" }],
-  },
-  {
-    id: "display",
-    name: "DISPLAY",
-    items: [{ id: "display-1", code: "LCD-24-IPS", name: "LG 24MP400-B 24 inch", quantity: 13, serial: "LG24MP-0013", location: "Kệ E-01", status: "Sẵn sàng" }],
-  },
-  {
-    id: "mouse",
-    name: "MOUSE",
-    items: [{ id: "mouse-1", code: "MOUSE-G102", name: "Logitech G102 Lightsync", quantity: 24, location: "Kệ E-02", status: "Sẵn sàng" }],
-  },
-  {
-    id: "keyboard",
-    name: "KEYBOARD",
-    items: [{ id: "keyboard-1", code: "KEY-K2-V2", name: "Keychron K2 V2", quantity: 8, serial: "K2V2-0008", location: "Kệ E-02", status: "Sẵn sàng" }],
-  },
-  {
-    id: "pad",
-    name: "PAD",
-    items: [{ id: "pad-1", code: "PAD-XXL-01", name: "Deskmat Extended XXL", quantity: 31, location: "Kệ E-03", status: "Sẵn sàng" }],
-  },
-  {
-    id: "wifi",
-    name: "CARD WIFI",
-    items: [{ id: "wifi-1", code: "WIFI-AX200", name: "Intel Wi-Fi 6 AX200", quantity: 4, serial: "AX200-0004", location: "Kệ E-04", status: "Sắp hết" }],
-  },
+const CATEGORIES = [
+  "CPU",
+  "Mainboard",
+  "RAM",
+  "SSD",
+  "HDD",
+  "GPU",
+  "PSU",
+  "Case",
+  "Tản nhiệt",
+  "Màn hình",
+  "Phím chuột",
+  "Tai nghe",
+  "Khác",
 ];
 
-const statusTones: Record<InventoryItem["status"], Tone> = {
-  "Sẵn sàng": "success",
-  "Đang dùng": "warning",
-  "Sắp hết": "warning",
+interface FormState {
+  sku: string;
+  name: string;
+  unit_price: string;
+  stock_qty: string;
+  category: string;
+}
+
+const emptyForm: FormState = {
+  sku: "",
+  name: "",
+  unit_price: "",
+  stock_qty: "0",
+  category: "",
 };
 
 export function PipelineSection() {
+  const { currentUser } = useAuth();
+  const canImport = can(currentUser?.roles, "product:manage");
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState<FormState>(emptyForm);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
 
-  const visibleCategories = useMemo(() => {
-    const categories = activeCategory === "all" ? inventoryCategories : inventoryCategories.filter((category) => category.id === activeCategory);
-    return categories
-      .map((category) => ({ ...category, items: category.items.filter((item) => `${item.code} ${item.name} ${item.serial ?? ""}`.toLowerCase().includes(searchQuery.toLowerCase())) }))
-      .filter((category) => category.items.length > 0);
-  }, [activeCategory, searchQuery]);
+  const loadProducts = async () => {
+    try {
+      const response = await fetch("/api/products", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Không thể tải danh sách sản phẩm");
+      }
+      setProducts(data.products || []);
+      setLoadError("");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Không thể tải danh sách sản phẩm");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const visibleItems = visibleCategories.flatMap((category) => category.items.map((item) => ({ ...item, category: category.name })));
+  useEffect(() => {
+    void loadProducts();
+  }, []);
+
+  const categories = useMemo(
+    () => [...new Set(products.map((product) => product.category || "Chưa phân loại"))],
+    [products]
+  );
+  const visibleProducts = products.filter((product) => {
+    const category = product.category || "Chưa phân loại";
+    const matchesCategory = activeCategory === "all" || category === activeCategory;
+    const matchesSearch = `${product.sku} ${product.name}`
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+
+    if (!form.sku.trim()) {
+      setFormError("Vui lòng nhập mã sản phẩm");
+      return;
+    }
+    if (!form.name.trim()) {
+      setFormError("Vui lòng nhập tên sản phẩm");
+      return;
+    }
+    const price = Number(form.unit_price);
+    if (isNaN(price) || price < 0) {
+      setFormError("Giá phải là số lớn hơn hoặc bằng 0");
+      return;
+    }
+    const qty = Number(form.stock_qty);
+    if (isNaN(qty) || qty < 0 || !Number.isInteger(qty)) {
+      setFormError("Số lượng phải là số nguyên lớn hơn hoặc bằng 0");
+      return;
+    }
+
+    setFormError("");
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sku: form.sku.trim(),
+          name: form.name.trim(),
+          unit_price: price,
+          stock_qty: qty,
+          category: form.category || null,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setFormError(data.error || "Không thể tạo sản phẩm");
+        return;
+      }
+
+      toast.success(`Đã nhập sản phẩm "${form.name}" vào kho`);
+      setForm(emptyForm);
+      setShowForm(false);
+      await loadProducts();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Không thể tạo sản phẩm");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -155,26 +167,231 @@ export function PipelineSection() {
           <p className={SECTION_SUBTITLE}>Danh sách linh kiện và thiết bị trong kho</p>
           <h1 className={SECTION_TITLE}>Kho hàng</h1>
         </div>
-        <Button className="bg-accent text-accent-foreground hover:bg-accent/90"><PackagePlus className="mr-2 h-4 w-4" />Nhập sản phẩm</Button>
+        <div className="flex items-center gap-2">
+          {canImport && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowForm(!showForm)}
+            >
+              <PackagePlus className="h-4 w-4" />
+              {showForm ? "Đóng form" : "Nhập sản phẩm"}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={loadProducts} disabled={isLoading}>
+            {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Làm mới
+          </Button>
+        </div>
       </div>
+
+      {/* Form nhập sản phẩm - chỉ hiển thị cho Kho và Admin */}
+      {canImport && showForm && (
+        <Card className="border-0 bg-card">
+          <CardContent className="p-4">
+            <h2 className="mb-4 font-semibold text-foreground">Thêm sản phẩm mới</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-sku" className="text-xs">Mã sản phẩm (SKU) *</Label>
+                  <Input
+                    id="product-sku"
+                    value={form.sku}
+                    onChange={(event) => setForm((prev) => ({ ...prev, sku: event.target.value }))}
+                    className="bg-secondary"
+                    placeholder="VD: CPU-I5-12400F"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-name" className="text-xs">Tên sản phẩm *</Label>
+                  <Input
+                    id="product-name"
+                    value={form.name}
+                    onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                    className="bg-secondary"
+                    placeholder="VD: Intel Core i5-12400F"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-category" className="text-xs">Nhóm sản phẩm</Label>
+                  <Select
+                    value={form.category}
+                    onValueChange={(value) => setForm((prev) => ({ ...prev, category: value }))}
+                  >
+                    <SelectTrigger className="bg-secondary">
+                      <SelectValue placeholder="Chọn nhóm" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map((cat) => (
+                        <SelectItem key={cat} value={cat}>
+                          {cat}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-price" className="text-xs">Giá bán (VNĐ) *</Label>
+                  <Input
+                    id="product-price"
+                    type="number"
+                    min="0"
+                    value={form.unit_price}
+                    onChange={(event) => setForm((prev) => ({ ...prev, unit_price: event.target.value }))}
+                    className="bg-secondary"
+                    placeholder="VD: 2500000"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product-qty" className="text-xs">Số lượng nhập *</Label>
+                  <Input
+                    id="product-qty"
+                    type="number"
+                    min="0"
+                    value={form.stock_qty}
+                    onChange={(event) => setForm((prev) => ({ ...prev, stock_qty: event.target.value }))}
+                    className="bg-secondary"
+                    placeholder="VD: 10"
+                  />
+                </div>
+              </div>
+
+              {formError && (
+                <div className="rounded-lg bg-danger/10 px-3 py-2.5 text-xs text-danger">
+                  {formError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setForm(emptyForm);
+                    setShowForm(false);
+                  }}
+                >
+                  Huỷ
+                </Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <PackagePlus className="h-4 w-4" />
+                  )}
+                  Nhập sản phẩm
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-0 bg-card">
         <CardContent className="space-y-4 p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative max-w-md flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Tìm theo mã, tên hoặc serial..." className="border-border bg-secondary pl-9" /></div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Filter className="h-4 w-4" />{visibleItems.length} sản phẩm</div>
+            <div className="relative max-w-md flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Tìm theo mã hoặc tên sản phẩm..."
+                className="border-border bg-secondary pl-9"
+              />
+            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Filter className="h-4 w-4" />
+              {visibleProducts.length} sản phẩm
+            </div>
           </div>
           <div className="flex gap-2 overflow-x-auto pt-4">
-            <Button size="sm" variant="ghost" onClick={() => setActiveCategory("all")} className={activeCategory === "all" ? "bg-accent text-accent-foreground" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}>Tất cả</Button>
-            {inventoryCategories.map((category) => <Button key={category.id} size="sm" variant="ghost" onClick={() => setActiveCategory(category.id)} className={activeCategory === category.id ? "bg-accent text-accent-foreground" : "bg-secondary/50 text-muted-foreground hover:bg-secondary"}>{category.name}</Button>)}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setActiveCategory("all")}
+              className={
+                activeCategory === "all"
+                  ? "bg-accent text-accent-foreground"
+                  : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
+              }
+            >
+              Tất cả
+            </Button>
+            {categories.map((category) => (
+              <Button
+                key={category}
+                size="sm"
+                variant="ghost"
+                onClick={() => setActiveCategory(category)}
+                className={
+                  activeCategory === category
+                    ? "bg-accent text-accent-foreground"
+                    : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
+                }
+              >
+                {category}
+              </Button>
+            ))}
           </div>
         </CardContent>
       </Card>
 
       <Card className="overflow-hidden border-0 bg-card">
-        <div className="flex items-center justify-between px-4 py-3"><div><h2 className="font-semibold text-foreground">Danh sách sản phẩm</h2><p className={SECTION_SUBTITLE}>Chọn nhóm phía trên để lọc nhanh</p></div><Tag className="h-4 w-4 text-muted-foreground" /></div>
-        <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-secondary/40 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3 font-medium">Sản phẩm</th><th className="px-4 py-3 font-medium">Nhóm</th><th className="px-4 py-3 font-medium">Mã sản phẩm</th><th className="px-4 py-3 font-medium">Serial</th><th className="px-4 py-3 font-medium">Số lượng</th><th className="px-4 py-3 font-medium">Vị trí</th><th className="px-4 py-3 font-medium">Trạng thái</th></tr></thead><tbody className="divide-y divide-border/50">{visibleItems.map((item) => <tr key={item.id} className="transition-colors hover:bg-secondary/30"><td className="px-4 py-3 font-medium text-foreground">{item.name}</td><td className="px-4 py-3 text-muted-foreground">{item.category}</td><td className="px-4 py-3 font-mono text-xs text-accent">{item.code}</td><td className="px-4 py-3">{item.serial ? <span className="inline-flex items-center gap-1.5 font-mono text-xs text-foreground"><CheckCircle2 className="h-3.5 w-3.5 text-success" />{item.serial}</span> : <span className="text-xs text-muted-foreground">Không có serial</span>}</td><td className="px-4 py-3 font-semibold text-foreground">{item.quantity}</td><td className="px-4 py-3 text-muted-foreground">{item.location}</td><td className="px-4 py-3"><span className={chip(statusTones[item.status])}>{item.status}</span></td></tr>)}</tbody></table></div>
-        {visibleItems.length === 0 && <div className="p-10 text-center text-sm text-muted-foreground">Không tìm thấy sản phẩm phù hợp.</div>}
+        <div className="flex items-center justify-between px-4 py-3">
+          <div>
+            <h2 className="font-semibold text-foreground">Danh sách sản phẩm</h2>
+            <p className={SECTION_SUBTITLE}>Chọn nhóm phía trên để lọc nhanh</p>
+          </div>
+          <Tag className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-secondary/40 text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="px-4 py-3 font-medium">Sản phẩm</th>
+                <th className="px-4 py-3 font-medium">Nhóm</th>
+                <th className="px-4 py-3 font-medium">Mã sản phẩm</th>
+                <th className="px-4 py-3 font-medium">Serial</th>
+                <th className="px-4 py-3 font-medium">Số lượng</th>
+                <th className="px-4 py-3 font-medium">Vị trí</th>
+                <th className="px-4 py-3 font-medium">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {visibleProducts.map((product) => {
+                const category = product.category || "Chưa phân loại";
+                const status = product.stock_qty > 0 ? "Sẵn sàng" : "Hết hàng";
+                const tone: Tone = product.stock_qty > 0 ? "success" : "danger";
+                return (
+                  <tr key={product.id} className="transition-colors hover:bg-secondary/30">
+                    <td className="px-4 py-3 font-medium text-foreground">{product.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{category}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-accent">{product.sku}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">Chưa cập nhật</td>
+                    <td className="px-4 py-3 font-semibold text-foreground">{product.stock_qty}</td>
+                    <td className="px-4 py-3 text-muted-foreground">Chưa cập nhật</td>
+                    <td className="px-4 py-3">
+                      <span className={chip(tone)}>{status}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {isLoading && (
+          <div className="p-10 text-center text-sm text-muted-foreground">
+            Đang tải danh sách sản phẩm...
+          </div>
+        )}
+        {!isLoading && loadError && (
+          <div className="p-10 text-center text-sm text-destructive">{loadError}</div>
+        )}
+        {!isLoading && !loadError && visibleProducts.length === 0 && (
+          <div className="p-10 text-center text-sm text-muted-foreground">
+            {products.length ? "Không tìm thấy sản phẩm phù hợp." : "Kho chưa có sản phẩm nào."}
+          </div>
+        )}
       </Card>
     </div>
   );

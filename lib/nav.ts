@@ -3,6 +3,7 @@ import {
   Container,
   Cpu,
   LayoutDashboard,
+  PackagePlus,
   ReceiptText,
   Settings,
   ShieldCheck,
@@ -44,13 +45,16 @@ export const PRIMARY_NAV: PrimaryNavItem[] = [
 ];
 
 /** Trang mở đầu: Admin vào Tổng quan, nhân viên vào hàng đợi của họ. */
-export function defaultSectionFor(role: Role | undefined | null): string {
-  return role === 'admin' ? 'overview' : 'deals';
+export function defaultSectionFor(roles: Role | Role[] | undefined | null): string {
+  if (!roles) return 'deals';
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  return roleArray.includes('admin') ? 'overview' : 'deals';
 }
 
-export function primaryNavFor(role: Role | undefined | null): PrimaryNavItem[] {
-  if (!role) return [];
-  return PRIMARY_NAV.filter((item) => role === 'admin' || item.roles.length === 0 || item.roles.includes(role));
+export function primaryNavFor(roles: Role | Role[] | undefined | null): PrimaryNavItem[] {
+  if (!roles) return [];
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  return PRIMARY_NAV.filter((item) => roleArray.includes('admin') || item.roles.length === 0 || item.roles.some((r) => roleArray.includes(r)));
 }
 
 // ---------------------------------------------------------------------------
@@ -118,23 +122,26 @@ export function isOperationSection(id: string): id is OperationSection {
 }
 
 /** Mục vận hành này có thuộc vai trò không? Admin thấy tất cả. */
-export function canAccessOperation(role: Role | undefined | null, id: string): boolean {
-  if (!role) return false;
-  if (role === 'admin') return true;
+export function canAccessOperation(roles: Role | Role[] | undefined | null, id: string): boolean {
+  if (!roles) return false;
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  if (roleArray.includes('admin')) return true;
   if (!isOperationSection(id)) return false;
-  return OPERATION_NAV.find((item) => item.id === id)?.roles.includes(role) ?? false;
+  return OPERATION_NAV.find((item) => item.id === id)?.roles.some((r) => roleArray.includes(r)) ?? false;
 }
 
-export function operationNavFor(role: Role | undefined | null): OperationNavItem[] {
-  if (!role) return [];
-  return OPERATION_NAV.filter((item) => role === 'admin' || item.roles.includes(role));
+export function operationNavFor(roles: Role | Role[] | undefined | null): OperationNavItem[] {
+  if (!roles) return [];
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  return OPERATION_NAV.filter((item) => roleArray.includes('admin') || item.roles.some((r) => roleArray.includes(r)));
 }
 
 /** Người dùng này có mở được mục này không? */
-export function canAccessSection(role: Role | undefined | null, id: string): boolean {
-  if (!role) return false;
-  if (isOperationSection(id)) return canAccessOperation(role, id);
-  if (role === 'admin') return true;
+export function canAccessSection(roles: Role | Role[] | undefined | null, id: string): boolean {
+  if (!roles) return false;
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  if (isOperationSection(id)) return canAccessOperation(roles, id);
+  if (roleArray.includes('admin')) return true;
   if (!PRIMARY_IDS.has(id)) return false;
-  return primaryNavFor(role).some((item) => item.id === id);
+  return primaryNavFor(roles).some((item) => item.id === id);
 }

@@ -19,9 +19,9 @@ const usernameSchema = z
 const createUserSchema = z.object({
   name: z.string().trim().min(2, 'Họ tên tối thiểu 2 ký tự').max(120),
   username: usernameSchema,
-  email: z.string().trim().email('Email không hợp lệ').max(160),
-  phone: z.string().trim().max(30).optional().nullable(),
-  role: z.enum(ROLES as [Role, ...Role[]]),
+  email: z.string().trim().email('Email không hợp lệ').max(160).optional().nullable(),
+  phone: z.string().trim().min(1, 'Vui lòng nhập số điện thoại').max(30),
+  roles: z.array(z.enum(ROLES as [Role, ...Role[]])).min(1, 'Vui lòng chọn ít nhất 1 vai trò'),
   password: z
     .string()
     .max(128)
@@ -38,10 +38,13 @@ export async function GET() {
     const db = getDb();
     const result = await db
       .prepare(
-        `SELECT id, name, phone, email, role, is_active, created_at, username,
-                last_login_at, locked_until, failed_login_count
-         FROM users
-         ORDER BY is_active DESC, role, name`
+        `SELECT u.id, u.name, u.phone, u.email, u.is_active, u.created_at, u.username,
+                u.last_login_at, u.locked_until, u.failed_login_count,
+                COALESCE(json_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL), '[]') as roles
+         FROM users u
+         LEFT JOIN user_roles ur ON u.id = ur.user_id
+         GROUP BY u.id
+         ORDER BY u.is_active DESC, u.name`
       )
       .all<any>();
 
@@ -70,7 +73,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, username, email, phone, role, is_active } = parsed.data;
+    const { name, username, email, phone, roles, is_active } = parsed.data;
     const adminProvidedPassword = parsed.data.password || null;
 
     // No password supplied -> admin gets a generated one to hand over
@@ -86,8 +89,8 @@ export async function POST(request: NextRequest) {
     const db = getDb();
 
     const duplicate = await db
-      .prepare('SELECT id, name FROM users WHERE username = ? COLLATE NOCASE OR email = ? COLLATE NOCASE')
-      .bind(username, email)
+      .prepare('SELECT id, name FROM users WHERE LOWER(username) = LOWER(?) OR (LOWER(email) = LOWER(?) AND email IS NOT NULL)')
+      .bind(username, email || '')
       .first<any>();
 
     if (duplicate) {
@@ -99,27 +102,39 @@ export async function POST(request: NextRequest) {
 
     const userId = `usr_${username}_${Date.now().toString(36)}`;
 
+    // Insert user
     await db
       .prepare(
-        `INSERT INTO users (id, name, phone, email, role, is_active, username, password_hash, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+        `INSERT INTO users (id, name, phone, email, is_active, username, password_hash, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
       )
       .bind(
         userId,
         name,
-        phone || null,
-        email,
-        role,
+        phone,
+        email || null,
         is_active ? 1 : 0,
         username,
         passwordHash
       )
       .run();
 
+    // Insert roles
+    for (const role of roles) {
+      await db
+        .prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+        .bind(userId, role)
+        .run();
+    }
+
     const created = await db
       .prepare(
-        `SELECT id, name, phone, email, role, is_active, created_at, username, last_login_at
-         FROM users WHERE id = ?`
+        `SELECT u.id, u.name, u.phone, u.email, u.is_active, u.created_at, u.username, u.last_login_at,
+                COALESCE(json_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL), '[]') as roles
+         FROM users u
+         LEFT JOIN user_roles ur ON u.id = ur.user_id
+         WHERE u.id = ?
+         GROUP BY u.id`
       )
       .bind(userId)
       .first<any>();
@@ -132,7 +147,7 @@ export async function POST(request: NextRequest) {
       targetName: name,
       detail: {
         username,
-        role,
+        roles,
         is_active,
         generated_password: !adminProvidedPassword,
       },

@@ -12,7 +12,7 @@ export async function POST(
     const { id } = await params;
     const currentUser = await requirePermission('order:export_kho');
 
-    if (currentUser.role !== 'kho' && currentUser.role !== 'admin') {
+    if (!currentUser.roles.includes('kho') && !currentUser.roles.includes('admin')) {
       return NextResponse.json(
         { error: 'Chỉ nhân viên Kho hoặc Admin mới có quyền thực hiện xuất kho' },
         { status: 403 }

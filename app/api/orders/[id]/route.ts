@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
 import { can, statusFromError } from '@/lib/permissions';
-import { canCancelOrder, canEditOrder, requiresRollbackToKho } from '@/lib/state-machine';
+import {
+  canCancelOrder,
+  canEditOrder,
+  requiresRollbackToKho,
+} from '@/lib/state-machine';
 import { Order, OrderItem, OrderStatus, OrderStatusHistory, Payment, Shipment } from '@/lib/types';
 
 export async function GET(
@@ -224,7 +228,7 @@ export async function PUT(
     const { id } = await params;
     const currentUser = await requireUser();
 
-    if (!can(currentUser.role, 'order:edit')) {
+    if (!can(currentUser.roles, 'order:edit')) {
       return NextResponse.json(
         { error: 'Không có quyền sửa đơn hàng' },
         { status: 403 }
@@ -259,14 +263,13 @@ export async function PUT(
       items, // array of { product_id, quantity, unit_price }
       reason = 'Điều chỉnh thông tin đơn hàng',
     } = body;
-
     let newStatus: OrderStatus = currentOrder.status;
     let didRollback = false;
     const changes: string[] = [];
     const actorLabel =
-      currentUser.role === 'kho'
+      currentUser.roles.includes('kho')
         ? 'Nhân viên Kho'
-        : currentUser.role === 'kinh_doanh'
+        : currentUser.roles.includes('kinh_doanh')
           ? 'Nhân viên Kinh doanh'
           : 'Admin';
 
@@ -343,7 +346,7 @@ export async function PUT(
           .bind(
             historyId,
             id,
-            'kho_pending',
+            newStatus,
             currentUser.id,
             `Rollback về Chờ xuất kho do ${actorLabel} sửa số lượng/sản phẩm: ${reason}`,
             snapshotSerials
@@ -489,7 +492,7 @@ export async function DELETE(
     const { id } = await params;
     const currentUser = await requireUser();
 
-    if (!can(currentUser.role, 'order:cancel')) {
+    if (!can(currentUser.roles, 'order:cancel')) {
       return NextResponse.json(
         { error: 'Không có quyền hủy đơn hàng' },
         { status: 403 }

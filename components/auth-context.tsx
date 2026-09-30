@@ -1,13 +1,13 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { AuthUser, Role } from "@/lib/types";
 import { toast } from "sonner";
 
 interface AuthContextType {
   currentUser: AuthUser | null;
-  role: Role;
+  roles: Role[];
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<boolean>;
@@ -20,6 +20,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -29,19 +30,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (res.status === 401) {
         setCurrentUser(null);
+        if (pathname !== "/login") {
+          router.replace("/login");
+        }
         return;
       }
 
       if (res.ok) {
         const data = await res.json();
         setCurrentUser(data.user ?? null);
+        if (pathname === "/login") {
+          router.replace("/");
+        }
       }
     } catch (err) {
       console.error("Failed to load current auth user:", err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [pathname, router]);
 
   useEffect(() => {
     fetchAuth();
@@ -95,13 +102,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return true;
   };
 
-  const role: Role = currentUser?.role || "kinh_doanh";
+  const roles: Role[] = currentUser?.roles || [];
 
   return (
     <AuthContext.Provider
       value={{
         currentUser,
-        role,
+        roles,
         isLoading,
         isAuthenticated: Boolean(currentUser),
         login,

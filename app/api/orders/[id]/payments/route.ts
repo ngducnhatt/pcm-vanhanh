@@ -15,9 +15,9 @@ export async function POST(
 
     // Check permission (kinh_doanh, shipper, admin)
     if (
-      currentUser.role !== 'kinh_doanh' &&
-      currentUser.role !== 'shipper' &&
-      currentUser.role !== 'admin'
+      !currentUser.roles.includes('kinh_doanh') &&
+      !currentUser.roles.includes('shipper') &&
+      !currentUser.roles.includes('admin')
     ) {
       return NextResponse.json(
         { error: 'Chỉ nhân viên Kinh Doanh, Shipper hoặc Admin mới có quyền thu tiền' },
@@ -66,7 +66,7 @@ export async function POST(
       .bind(id)
       .first<{ total_paid: number }>();
 
-    const newPaidAmount = sumRow?.total_paid || paymentAmount;
+    const newPaidAmount = Number(sumRow?.total_paid || 0);
     let newPaymentStatus: PaymentStatus = 'unpaid';
 
     if (newPaidAmount >= orderRow.total_amount && orderRow.total_amount > 0) {

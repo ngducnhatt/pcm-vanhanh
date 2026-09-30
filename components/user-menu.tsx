@@ -21,7 +21,8 @@ export function UserMenu({ onOpenAccounts }: { onOpenAccounts?: () => void }) {
 
   if (!currentUser) return null;
 
-  const roleMeta = ROLE_META[currentUser.role];
+  const primaryRole = currentUser.roles[0] || 'kinh_doanh';
+  const roleMeta = ROLE_META[primaryRole];
   const RoleIcon = roleMeta.icon;
 
   // Chỉ lấy 2 chữ cái đầu của từ cuối cùng, ví dụ "Nguyễn Quản Trị" -> "QT"
@@ -91,7 +92,7 @@ export function UserMenu({ onOpenAccounts }: { onOpenAccounts?: () => void }) {
             Đổi mật khẩu
           </DropdownMenuItem>
 
-          {currentUser.role === "admin" && onOpenAccounts && (
+          {currentUser.roles.includes("admin") && onOpenAccounts && (
             <DropdownMenuItem onClick={onOpenAccounts}>
               <UserCog className="h-4 w-4 text-muted-foreground" />
               Quản lý tài khoản

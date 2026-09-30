@@ -7,6 +7,7 @@
  * Không truyền mật khẩu -> hệ thống sinh một mật khẩu ngẫu nhiên.
  * Mọi phiên đăng nhập đang hoạt động của tài khoản đó sẽ bị huỷ.
  */
+import 'dotenv/config';
 import { getDb } from '../lib/db';
 import { generateToken, hashPassword } from '../lib/crypto';
 import { checkPasswordPolicy, writeAuditLog } from '../lib/auth';
@@ -22,7 +23,7 @@ async function main() {
 
   const db = getDb();
   const user = await db
-    .prepare('SELECT id, name, role, username FROM users WHERE username = ? COLLATE NOCASE')
+    .prepare('SELECT id, name, role, username FROM users WHERE LOWER(username) = LOWER(?)')
     .bind(username)
     .first<any>();
 
@@ -62,7 +63,7 @@ async function main() {
     detail: { generated: !provided, via: 'cli' },
   });
 
-  console.log(`\nĐã đặt lại mật khẩu cho ${user.name} (${user.role}).`);
+  console.log(`\nĐã đặt lại mật khẩu cho ${user.name} (${user.roles.join(', ')}).`);
   console.log(`Mật khẩu: ${password}`);
   console.log('Tài khoản đã được mở khoá và kích hoạt lại nếu trước đó bị khoá.');
   console.log('Tất cả phiên đăng nhập cũ đã bị huỷ.\n');

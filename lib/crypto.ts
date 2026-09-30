@@ -1,6 +1,6 @@
 /**
  * Password hashing & token helpers built on Web Crypto only.
- * Works in Node.js (Next.js runtime) and Cloudflare Workers/Pages without extra deps.
+ * Uses Web Crypto APIs available in the Node.js runtime.
  *
  * Hash format: pbkdf2_sha256$<iterations>$<saltBase64>$<hashBase64>
  */

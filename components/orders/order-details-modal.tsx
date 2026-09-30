@@ -194,7 +194,7 @@ export function OrderDetailsModal({
                             <div className="text-foreground">{h.note}</div>
 
                             <div className="text-[11px] text-muted-foreground">
-                              Người thực hiện: <strong>{h.changed_by_user?.name || "Hệ thống"}</strong> ({h.changed_by_user?.role})
+                              Người thực hiện: <strong>{h.changed_by_user?.name || "Hệ thống"}</strong> ({(h.changed_by_user?.roles || []).join(', ')})
                             </div>
 
                             {/* Snapshot serial display */}

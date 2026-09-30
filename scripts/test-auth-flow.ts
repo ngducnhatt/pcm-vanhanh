@@ -1,7 +1,8 @@
 /**
  * Smoke test cho hệ thống đăng nhập & quản lý tài khoản.
- * Chạy sau `npm run db:reset`:  npm run test:auth
+ * Chỉ chạy trên PostgreSQL database riêng có tên kết thúc bằng `_test`.
  */
+import dotenv from 'dotenv';
 import { getDb } from '../lib/db';
 import { hashPassword, verifyPassword, generateToken, hashToken } from '../lib/crypto';
 import {
@@ -17,7 +18,7 @@ import {
 import { can } from '../lib/permissions';
 import { ROLE_LABELS, Role } from '../lib/types';
 
-const DEFAULT_PASSWORD = 'Pcshop@123';
+const TEST_PASSWORD = 'test-only-password-2026';
 const TEST_USERNAME = 'test.auth.tmp';
 
 let failures = 0;
@@ -37,6 +38,17 @@ function assert(condition: any, message: string) {
 }
 
 async function main() {
+  dotenv.config({ path: '.env.test' });
+  const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+  if (!testDatabaseUrl) {
+    throw new Error('Set TEST_DATABASE_URL to a dedicated PostgreSQL database ending in _test.');
+  }
+  const databaseName = new URL(testDatabaseUrl).pathname.slice(1);
+  if (!databaseName.endsWith('_test')) {
+    throw new Error('Refusing to run auth tests: TEST_DATABASE_URL database name must end in _test.');
+  }
+  process.env.DATABASE_URL = testDatabaseUrl;
+
   console.log('====================================================');
   console.log('KIỂM THỬ HỆ THỐNG ĐĂNG NHẬP & QUẢN LÝ TÀI KHOẢN');
   console.log('====================================================\n');
@@ -44,8 +56,58 @@ async function main() {
   const db = getDb();
   const testUserId = `usr_${TEST_USERNAME}`;
 
-  // Dọn dẹp nếu có dữ liệu cũ từ lần chạy trước
-  await db.prepare('DELETE FROM users WHERE id = ?').bind(testUserId).run();
+  await db.prepare("DELETE FROM users WHERE id LIKE 'usr_test_%'").run();
+  const seedPasswordHash = await hashPassword(TEST_PASSWORD);
+  const seedUsernames: Record<Role, string> = {
+    admin: 'admin',
+    kinh_doanh: 'sale',
+    kho: 'kho',
+    ky_thuat: 'kythuat',
+    quan_ly_ky_thuat: 'qlkythuat',
+    bao_hanh: 'baohanh',
+    quan_ly_ship: 'qlship',
+    shipper: 'shipper1',
+  };
+
+  for (const role of Object.keys(ROLE_LABELS) as Role[]) {
+    const username = seedUsernames[role];
+    const userId = `usr_test_seed_${role}`;
+    await db
+      .prepare(
+        `INSERT INTO users (id, name, email, is_active, username, password_hash, updated_at)
+         VALUES (?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)`
+      )
+      .bind(
+        userId,
+        ROLE_LABELS[role],
+        `test-${role}@example.invalid`,
+        username,
+        seedPasswordHash
+      )
+      .run();
+    await db
+      .prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+      .bind(userId, role)
+      .run();
+  }
+  const shipper2Id = 'usr_test_seed_shipper2';
+  await db
+    .prepare(
+      `INSERT INTO users (id, name, email, is_active, username, password_hash, updated_at)
+       VALUES (?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)`
+    )
+    .bind(
+      shipper2Id,
+      'Shipper kiểm thử 2',
+      'test-shipper2@example.invalid',
+      'shipper2',
+      seedPasswordHash
+    )
+    .run();
+  await db
+    .prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+    .bind(shipper2Id, 'shipper')
+    .run();
 
   // 1. Băm mật khẩu
   await runTest('Crypto: hash/verify mật khẩu', async () => {
@@ -82,20 +144,20 @@ async function main() {
     assert(checkPasswordPolicy('admin').valid, 'Mật khẩu trùng tên đăng nhập vẫn được chấp nhận');
   });
 
-  // 3. Tài khoản mẫu đã được seed
-  await runTest('Seed: 9 tài khoản mẫu có username + mật khẩu', async () => {
+  // 3. Tài khoản kiểm thử
+  await runTest('Fixture: đăng nhập bằng tài khoản admin thử nghiệm', async () => {
     const admin = await getUserByUsername('admin');
     assert(admin, 'Không tìm thấy tài khoản admin');
-    assert(admin!.role === 'admin', 'Tài khoản admin phải có vai trò admin');
+    assert(admin!.roles.includes('admin'), 'Tài khoản admin phải có vai trò admin');
 
-    const result = await authenticate('admin', DEFAULT_PASSWORD);
+    const result = await authenticate('admin', TEST_PASSWORD);
     assert(result.ok, `Đăng nhập admin bằng mật khẩu mặc định thất bại: ${result.message}`);
   });
 
-  await runTest('Seed: đủ 8 vai trò', async () => {
+  await runTest('Fixture: đủ tài khoản cho 8 vai trò', async () => {
     for (const role of Object.keys(ROLE_LABELS) as Role[]) {
       const row = await db
-        .prepare('SELECT COUNT(*) AS total FROM users WHERE role = ? AND password_hash IS NOT NULL')
+        .prepare('SELECT COUNT(*) AS total FROM user_roles WHERE role = ?')
         .bind(role)
         .first<any>();
       assert((row?.total ?? 0) > 0, `Chưa seed tài khoản cho vai trò ${role}`);
@@ -104,10 +166,10 @@ async function main() {
 
   // 4. Đăng nhập sai & khoá tài khoản
   await runTest('Đăng nhập: sai tên đăng nhập hoặc sai mật khẩu đều bị từ chối', async () => {
-    const wrongUser = await authenticate('khong.ton.tai', DEFAULT_PASSWORD);
+    const wrongUser = await authenticate('khong.ton.tai', TEST_PASSWORD);
     assert(!wrongUser.ok && wrongUser.reason === 'invalid_credentials', 'Sai username phải bị từ chối');
 
-    const wrongPass = await authenticate('admin', 'MatKhauSai@123');
+    const wrongPass = await authenticate('admin', 'wrong-test-password');
     assert(!wrongPass.ok && wrongPass.reason === 'invalid_credentials', 'Sai mật khẩu phải bị từ chối');
   });
 
@@ -115,10 +177,14 @@ async function main() {
     const passwordHash = await hashPassword('MatKhau@2026');
     await db
       .prepare(
-        `INSERT INTO users (id, name, email, role, is_active, username, password_hash)
-         VALUES (?, ?, ?, ?, 1, ?, ?)`
+        `INSERT INTO users (id, name, email, is_active, username, password_hash)
+         VALUES (?, ?, ?, 1, ?, ?)`
       )
-      .bind(testUserId, 'Tài khoản kiểm thử', 'test.auth@pcshop.vn', 'shipper', TEST_USERNAME, passwordHash)
+      .bind(testUserId, 'Tài khoản kiểm thử', 'test.auth@pcshop.vn', TEST_USERNAME, passwordHash)
+      .run();
+    await db
+      .prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)')
+      .bind(testUserId, 'shipper')
       .run();
 
     for (let attempt = 1; attempt < MAX_FAILED_LOGINS; attempt++) {
@@ -229,7 +295,7 @@ async function main() {
   });
 
   // Dọn dẹp
-  await db.prepare('DELETE FROM users WHERE id = ?').bind(testUserId).run();
+  await db.prepare("DELETE FROM users WHERE id LIKE 'usr_test_%'").run();
 
   console.log('\n====================================================');
   if (failures === 0) {
@@ -242,4 +308,7 @@ async function main() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-main();
+main().catch((error) => {
+  console.error('Authentication tests could not run:', error);
+  process.exitCode = 1;
+});

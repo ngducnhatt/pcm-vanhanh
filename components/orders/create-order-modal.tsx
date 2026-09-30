@@ -33,7 +33,7 @@ export function CreateOrderModal({ isOpen, onClose, onSuccess }: CreateOrderModa
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [note, setNote] = useState("");
-  const [tags, setTags] = useState<string[]>(["moi"]);
+  const [tags, setTags] = useState<string[]>([]);
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"qr" | "cash" | "transfer">("qr");
   const [paymentType, setPaymentType] = useState<"unpaid" | "partial" | "full">("unpaid");
@@ -161,7 +161,7 @@ export function CreateOrderModal({ isOpen, onClose, onSuccess }: CreateOrderModa
       setCustomerEmail("");
       setNote("");
       setSelectedItems([]);
-      setTags(["moi"]);
+      setTags([]);
       setPaymentType("unpaid");
       setDepositAmount(0);
       setProductSearch("");
@@ -276,6 +276,7 @@ export function CreateOrderModal({ isOpen, onClose, onSuccess }: CreateOrderModa
               {[
                 { id: "kithuat", label: "Kỹ thuật" },
                 { id: "baohanh", label: "Bảo hành" },
+                { id: "ship", label: "Ship" },
                 { id: "thu_cu", label: "Thu cũ đổi mới" },
               ].map((tag) => (
                 <button

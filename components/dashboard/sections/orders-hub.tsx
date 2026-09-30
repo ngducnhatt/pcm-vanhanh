@@ -104,7 +104,7 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
         params.append("payment_status", selectedPaymentStatus);
       }
 
-      const res = await fetch(`/api/orders?${params.toString()}`);
+      const res = await fetch(`/api/orders?${params.toString()}`, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setOrders(data.orders || []);
@@ -367,8 +367,8 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
                       {/* Tags */}
                       <td className="p-3">
                         <div className="flex flex-wrap gap-1 max-w-[180px]">
-                          {order.tags && order.tags.length > 0 ? (
-                            order.tags.map((t) => (
+                          {order.tags && order.tags.filter((tag) => tag !== "moi").length > 0 ? (
+                            order.tags.filter((tag) => tag !== "moi").map((t) => (
                               <span
                                 key={t}
                                 className={cn(
@@ -380,7 +380,13 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
                                     : "bg-secondary text-muted-foreground"
                                 )}
                               >
-                                {t === "kithuat" ? "🔧 Kỹ thuật" : t === "baohanh" ? "🛡️ Bảo hành" : t}
+                                {t === "kithuat"
+                                  ? "🔧 Kỹ thuật"
+                                  : t === "baohanh"
+                                    ? "🛡️ Bảo hành"
+                                    : t === "ship"
+                                      ? "🚚 Ship"
+                                      : t}
                               </span>
                             ))
                           ) : (

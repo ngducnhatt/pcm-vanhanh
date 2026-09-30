@@ -35,10 +35,10 @@ export function Sidebar({
   collapsed,
   onCollapsedChange,
 }: SidebarProps) {
-  const { role } = useAuth();
+  const { roles } = useAuth();
 
   // Nhân viên chỉ thấy 3 mục tối thiểu; nhóm "Vận hành" là của riêng Admin
-  const operationItems = operationNavFor(role);
+  const operationItems = operationNavFor(roles);
 
   return (
     <aside
@@ -70,7 +70,7 @@ export function Sidebar({
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 overflow-hidden overflow-y-auto">
         <div className="space-y-1">
-          {primaryNavFor(role).map((item) => {
+          {primaryNavFor(roles).map((item) => {
             const Icon = item.icon;
             const isActive = activeSection === item.id;
 

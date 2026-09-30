@@ -21,6 +21,16 @@ export function hasWarrantyTag(tags: string[]): boolean {
 }
 
 /**
+ * Checks whether the order explicitly requests shipping.
+ */
+export function hasShippingTag(tags: string[]): boolean {
+  return tags.some((t) => {
+    const norm = t.toLowerCase().trim();
+    return norm === 'ship' || norm === 'giao_hang' || norm === 'giao hàng' || norm === 'shipping';
+  });
+}
+
+/**
  * Determine the next state after warehouse export (kho_done)
  * Rules:
  * 1. If has tech tag -> kithuat_pending
@@ -108,7 +118,7 @@ export function shouldCompleteOrder(status: OrderStatus, paymentStatus: PaymentS
  * Check what actions a role is permitted to perform on an order
  */
 export function canPerformAction(
-  role: Role,
+  roles: Role | Role[],
   action:
     | 'create_order'
     | 'edit_order'
@@ -123,41 +133,42 @@ export function canPerformAction(
     | 'collect_payment',
   currentStatus?: OrderStatus
 ): boolean {
-  if (role === 'admin') return true;
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  if (roleArray.includes('admin')) return true;
 
   switch (action) {
     case 'create_order':
-      return role === 'kinh_doanh';
+      return roleArray.includes('kinh_doanh');
 
     case 'edit_order':
     case 'cancel_order':
-      return role === 'kinh_doanh' && (currentStatus ? canEditOrder(currentStatus) : true);
+      return roleArray.includes('kinh_doanh') && (currentStatus ? canEditOrder(currentStatus) : true);
 
     case 'receive_kho':
-      return role === 'kho' && (currentStatus === 'new' || currentStatus === 'draft');
+      return roleArray.includes('kho') && (currentStatus === 'new' || currentStatus === 'draft');
 
     case 'export_kho':
-      return role === 'kho' && currentStatus === 'kho_pending';
+      return roleArray.includes('kho') && currentStatus === 'kho_pending';
 
     case 'complete_kithuat':
       // quan_ly_ky_thuat chỉ giám sát, không duyệt, không chặn luồng
       // ky_thuat thực hiện thao tác hoàn thành
-      return role === 'ky_thuat' && currentStatus === 'kithuat_pending';
+      return roleArray.includes('ky_thuat') && currentStatus === 'kithuat_pending';
 
     case 'complete_baohanh':
-      return role === 'bao_hanh' && currentStatus === 'baohanh_pending';
+      return roleArray.includes('bao_hanh') && currentStatus === 'baohanh_pending';
 
     case 'assign_ship':
-      return role === 'quan_ly_ship' && currentStatus === 'ship_pending';
+      return roleArray.includes('quan_ly_ship') && currentStatus === 'ship_pending';
 
     case 'start_delivery':
-      return role === 'shipper' && currentStatus === 'ship_assigned';
+      return roleArray.includes('shipper') && currentStatus === 'ship_assigned';
 
     case 'complete_delivery':
-      return role === 'shipper' && currentStatus === 'ship_dangiao';
+      return roleArray.includes('shipper') && currentStatus === 'ship_dangiao';
 
     case 'collect_payment':
-      return role === 'kinh_doanh' || role === 'shipper';
+      return roleArray.includes('kinh_doanh') || roleArray.includes('shipper');
 
     default:
       return false;

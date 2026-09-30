@@ -39,7 +39,7 @@ type View = Section | "search" | "notifications";
 
 export default function Dashboard() {
   const router = useRouter();
-  const { currentUser, isLoading, role } = useAuth();
+  const { currentUser, isLoading, roles } = useAuth();
 
   const [activeSection, setActiveSection] = useState<Section>("overview");
   const [activeView, setActiveView] = useState<View>("overview");
@@ -49,13 +49,13 @@ export default function Dashboard() {
   // Mục thuộc vai trò khác (hoặc đổi tài khoản/role giữa chừng)
   // -> đưa người dùng về trang mở đầu của vai trò đó.
   useEffect(() => {
-    if (!role) return;
-    if (!canAccessSection(role, activeSection)) {
-      const fallback = defaultSectionFor(role) as Section;
+    if (!roles || roles.length === 0) return;
+    if (!canAccessSection(roles, activeSection)) {
+      const fallback = defaultSectionFor(roles) as Section;
       setActiveSection(fallback);
       setActiveView(fallback);
     }
-  }, [role, activeSection]);
+  }, [roles, activeSection]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -95,7 +95,7 @@ export default function Dashboard() {
   };
 
   const handleSectionChange = (section: Section) => {
-    if (!canAccessSection(role, section)) return;
+    if (!canAccessSection(roles, section)) return;
     setActiveSection(section);
     setActiveView(section);
   };

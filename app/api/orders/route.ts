@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     if (shipperId) {
       query += ' AND s.shipper_id = ?';
       params.push(shipperId);
-    } else if (currentUser.role === 'shipper' && !roleQueue) {
+    } else if (currentUser.roles.includes('shipper') && !roleQueue) {
       // If current user is shipper and viewing their dashboard
       query += ' AND s.shipper_id = ?';
       params.push(currentUser.id);
@@ -139,7 +139,10 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({ orders });
+    return NextResponse.json(
+      { orders },
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   } catch (error: any) {
     console.error('Error fetching orders:', error);
     return NextResponse.json(
@@ -152,7 +155,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const currentUser = await requireUser();
-    if (!can(currentUser.role, 'order:create')) {
+    if (!can(currentUser.roles, 'order:create')) {
       return NextResponse.json(
         { error: 'Chỉ nhân viên Kinh Doanh hoặc Admin mới có quyền tạo đơn hàng' },
         { status: 403 }
@@ -196,7 +199,7 @@ export async function POST(request: NextRequest) {
       .prepare("SELECT COUNT(*) as count FROM orders WHERE invoice_date = ?")
       .bind(dateStr)
       .first<{ count: number }>();
-    const count = (countRow?.count || 0) + 1;
+    const count = Number(countRow?.count || 0) + 1;
     const invoiceNo = `HD-${dateStr.replace(/-/g, '')}-${String(count).padStart(3, '0')}`;
 
     // Calculate total amount
@@ -294,7 +297,7 @@ export async function POST(request: NextRequest) {
     const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const historyNote = is_draft
       ? 'Kinh doanh tạo bản nháp đơn hàng'
-      : `Kinh doanh tạo đơn hàng mới chuyển kho (${paymentStatus === 'full' ? 'Đã thanh toán đủ' : paymentStatus === 'partial' ? `Đã cọc ${paidAmount.toLocaleString()}đ` : 'Chưa thanh toán'})`;
+      : `Kinh doanh tạo đơn hàng mới chuyển kho xuất (${paymentStatus === 'full' ? 'Đã thanh toán đủ' : paymentStatus === 'partial' ? `Đã cọc ${paidAmount.toLocaleString()}đ` : 'Chưa thanh toán'})`;
 
     await db
       .prepare(

@@ -8,13 +8,30 @@ export async function GET() {
     const currentUser = await getCurrentUser();
 
     if (!currentUser) {
-      return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 });
+      const response = NextResponse.json(
+        { error: 'Chưa đăng nhập' },
+        {
+          status: 401,
+          headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
+        }
+      );
+      response.cookies.set(SESSION_COOKIE_NAME, '', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 0,
+      });
+      return response;
     }
 
-    return NextResponse.json({
-      authenticated: true,
-      user: currentUser,
-    });
+    return NextResponse.json(
+      {
+        authenticated: true,
+        user: currentUser,
+      },
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   } catch (error: any) {
     console.error('Error fetching auth user:', error);
     return NextResponse.json(

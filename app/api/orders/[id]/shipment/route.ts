@@ -11,7 +11,7 @@ export async function POST(
     const { id } = await params;
     const currentUser = await requirePermission('order:assign_ship');
 
-    if (currentUser.role !== 'quan_ly_ship' && currentUser.role !== 'admin') {
+    if (!currentUser.roles.includes('quan_ly_ship') && !currentUser.roles.includes('admin')) {
       return NextResponse.json(
         { error: 'Chỉ Quản Lý Ship hoặc Admin mới có quyền phân công vận chuyển' },
         { status: 403 }

@@ -5,11 +5,10 @@ Hệ thống quản lý vận hành cho cửa hàng linh kiện máy tính & bui
 | | |
 |---|---|
 | Tên dự án | `pcm-van-hanh` |
-| Tên Cloudflare Worker / Pages | `pcm-van-hanh` |
-| Tên D1 database | `pcm-van-hanh-db` |
+| Database production khuyến nghị | PostgreSQL |
 | Cổng mặc định | `http://localhost:3000` |
 
-Dự án Web App phát triển bằng **Next.js (App Router, TypeScript)**, hỗ trợ cơ sở dữ liệu **Cloudflare D1 (SQLite)** và triển khai lên **Cloudflare Pages / Workers**.
+Dự án Web App phát triển bằng **Next.js (App Router, TypeScript)**, chạy self-host trên máy tính công ty với Node.js và PostgreSQL cài trực tiếp trên Windows. Không cần Docker, Cloudflare D1 hay dịch vụ database bên ngoài.
 
 ---
 
@@ -96,11 +95,11 @@ sequenceDiagram
     participant U as Người dùng
     participant B as Browser
     participant A as /api/auth/login
-    participant D as Database (D1/SQLite)
+    participant D as PostgreSQL
 
     U->>B: Nhập tên đăng nhập + mật khẩu
     B->>A: POST /api/auth/login
-    A->>D: SELECT user theo username (COLLATE NOCASE)
+    A->>D: SELECT user theo username (không phân biệt hoa/thường)
     D-->>A: user + password_hash
     A->>A: verifyPassword() (PBKDF2-SHA256, 210.000 vòng)
     alt Sai thông tin
@@ -120,7 +119,7 @@ sequenceDiagram
 
 | Cơ chế | Chi tiết |
 |---|---|
-| Mật khẩu | **PBKDF2-SHA256**, 210.000 vòng, salt ngẫu nhiên 16 byte (`lib/crypto.ts`). Không thêm dependency, chạy được trên Node.js và Cloudflare Workers |
+| Mật khẩu | **PBKDF2-SHA256**, 210.000 vòng, salt ngẫu nhiên 16 byte (`lib/crypto.ts`). Không thêm dependency, chạy bằng Web Crypto trong Node.js |
 | Phiên đăng nhập | Token ngẫu nhiên 32 byte, cookie `pcm_session` cờ `httpOnly` + `sameSite=lax` + `secure` (production), hạn 7 ngày |
 | Lưu trữ phiên | Database **chỉ lưu SHA-256 của token** → lộ database cũng không dùng lại được cookie |
 | Chống dò mật khẩu | Sai 5 lần → khoá 15 phút. Sai tên đăng nhập cũng phải băm mật khẩu giả để không lộ ra sự khác biệt thời gian phản hồi |
@@ -133,22 +132,9 @@ sequenceDiagram
 
 > Middleware chạy ở edge runtime nên chỉ kiểm tra **sự hiện diện** của cookie. Việc tra cứu `sessions`, kiểm tra hạn và `is_active` được thực hiện ở server (`lib/auth.ts`) cho mọi API route.
 
-### 3.3. Tài khoản mẫu (seed)
+### 3.3. Tài khoản quản trị ban đầu
 
-Đăng nhập tại `http://localhost:3000/login`:
-
-| Tên đăng nhập | Vai trò | Mật khẩu |
-|---|---|---|
-| `admin` | Admin Toàn Quyền | `Pcshop@123` |
-| `sale` | Kinh Doanh | `Pcshop@123` |
-| `kho` | Kho | `Pcshop@123` |
-| `kythuat` | Kỹ Thuật | `Pcshop@123` |
-| `qlkythuat` | Quản Lý Kỹ Thuật | `Pcshop@123` |
-| `baohanh` | Bảo Hành | `Pcshop@123` |
-| `qlship` | Quản Lý Ship | `Pcshop@123` |
-| `shipper1` / `shipper2` | Shipper | `Pcshop@123` |
-
-Tài khoản seed đăng nhập được ngay, không bắt buộc đổi mật khẩu.
+Không có tài khoản mẫu hoặc mật khẩu mặc định. Khi triển khai PostgreSQL lần đầu, `db:admin` tạo duy nhất tài khoản admin theo `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME` và `ADMIN_PASSWORD` trong `.env`. Các tài khoản nhân viên được tạo sau khi đăng nhập với tư cách admin.
 
 ### 3.4. Mục "Nhân viên & Vai trò" (gộp cả quản lý tài khoản)
 
@@ -198,7 +184,7 @@ Lệnh này cũng mở khoá tài khoản, kích hoạt lại tài khoản bị 
 
 ---
 
-## 4. Cấu Trúc Database (Cloudflare D1 / SQLite)
+## 4. Cấu Trúc Database (PostgreSQL)
 
 - **users**: `id, name, phone, email, role, is_active, created_at` + `username, password_hash, last_login_at, failed_login_count, locked_until, updated_at`
 - **sessions**: `id (sha256 token), user_id, user_agent, ip, created_at, last_seen_at, expires_at`
@@ -209,7 +195,7 @@ Lệnh này cũng mở khoá tài khoản, kích hoạt lại tài khoản bị 
 - **order_status_history**: `id, order_id, status, changed_by_user_id, note, snapshot_serials, created_at`
 - **payments**: `id, order_id, method ("qr" | "cash" | "transfer"), amount, collected_by_user_id, paid_at`
 - **shipments**: `id, order_id, shipper_id, assigned_by_user_id, address, distance_km, km_source ("gg_map" | "manual"), created_at`
-- **schema_migrations**: `name, applied_at` (dùng cho bộ chạy migration tự động ở local)
+- **schema_migrations**: `name, applied_at` (theo dõi migration PostgreSQL đã chạy)
 
 ---
 
@@ -233,54 +219,110 @@ Lệnh này cũng mở khoá tài khoản, kích hoạt lại tài khoản bị 
 
 ## 6. Hướng Dẫn Cài Đặt & Chạy Thử
 
-### Chạy Local (Next.js + SQLite cục bộ)
+### Chạy local trên Windows (không dùng Docker)
 
-Yêu cầu Node.js **22.5 trở lên**. SQLite local dùng module có sẵn trong Node.js, không cần cài Python hoặc biên dịch native module.
+Cài Node.js 22 LTS và PostgreSQL 17 trực tiếp trên Windows. Cài PostgreSQL từ trang chính thức và ghi nhớ mật khẩu quản trị `postgres`; giữ dịch vụ PostgreSQL tự khởi động cùng Windows.
 
-```bash
-# 1. Cài đặt thư viện
-npm install
+Mở PowerShell tại thư mục dự án:
 
-# 2. Reset database & nạp dữ liệu mẫu (chạy đủ các migration)
-npm run db:reset
+```powershell
+Copy-Item .env.example .env
+notepad .env
+npm ci
+```
 
-# 3. Kiểm thử tự động
-npm run test:flow      # luồng nghiệp vụ & state machine
-npm run test:auth      # đăng nhập, phiên, khoá tài khoản, phân quyền
+Trong `.env`, cấu hình `DATABASE_URL` tới PostgreSQL local, ví dụ `postgresql://pcm_app:yourpassword@localhost:5432/pcm_vanhanh`. Dùng mật khẩu chỉ gồm chữ và số để tránh cần URL-encode ký tự đặc biệt. Điền `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME` và `ADMIN_PASSWORD`.
 
-# 4. Khởi chạy server phát triển
+Mở SQL Shell (psql) từ PostgreSQL, kết nối bằng tài khoản `postgres`, rồi tạo role/database:
+
+```sql
+CREATE ROLE pcm_app LOGIN;
+\password pcm_app
+CREATE DATABASE pcm_vanhanh OWNER pcm_app;
+\q
+```
+
+Khi nhập mật khẩu cho `pcm_app`, dùng mật khẩu khớp với `DATABASE_URL`. Trong PowerShell:
+
+```powershell
+npm run db:migrate
+npm run db:admin
 npm run dev
 ```
 
-Mở trình duyệt tại `http://localhost:3000` → hệ thống chuyển sang `/login`. Đăng nhập bằng `admin` / `Pcshop@123`.
+Mở `http://localhost:3000`; dừng server bằng `Ctrl+C`. Mọi dữ liệu nghiệp vụ được lưu trong PostgreSQL.
 
-> `npm run db:reset` cần tắt dev server trước (SQLite không cho xoá file khi đang mở). Nếu chỉ muốn nạp thêm migration mới thì bộ chạy migration trong `lib/db.ts` tự áp dụng file chưa chạy và ghi vào bảng `schema_migrations`.
+#### Chạy kiểm thử
 
-### Triển khai lên Cloudflare D1 & Pages
-1. Cấu hình D1 trong `wrangler.jsonc`:
-```jsonc
-{
-  "name": "pcm-van-hanh",
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "pcm-van-hanh-db",
-      "database_id": "your-d1-database-id"
-    }
-  ]
+`npm run test:flow` kiểm thử quy tắc chuyển trạng thái, không cần database. Kiểm thử đăng nhập cần PostgreSQL database riêng, tuyệt đối không dùng database production:
+
+```sql
+CREATE DATABASE pcm_vanhanh_test OWNER pcm_app;
+```
+
+Đặt `TEST_DATABASE_URL` trong `.env.test` trỏ tới `pcm_vanhanh_test`, sau đó chạy `npm run test:auth`. Script từ chối database không có tên kết thúc bằng `_test`.
+
+```powershell
+Copy-Item .env.test.example .env.test
+notepad .env.test
+npm run test:auth
+```
+
+### Hosting trên máy công ty, truy cập từ xa
+
+Production chạy trực tiếp trên Windows: PostgreSQL lưu dữ liệu, Next.js phục vụ web và Caddy chạy native làm reverse proxy HTTPS. Nhân viên tại máy chủ mở `http://localhost:3000`; nhân viên ngoài công ty truy cập `https://<domain>` qua Internet/4G.
+
+#### Chuẩn bị truy cập Internet
+
+- Máy chủ phải luôn bật và có Internet hoạt động. Nhân viên truy cập từ xa cần Internet/4G; nếu đường Internet của máy công ty bị ngắt thì họ không thể kết nối.
+- Cần domain/subdomain riêng; tạo DNS `A` record trỏ tới IP public của công ty. Nếu IP public thay đổi, cấu hình DDNS hoặc đăng ký IP tĩnh.
+- Đặt IP LAN tĩnh cho máy chủ; trên router/firewall chỉ chuyển tiếp TCP `80` và `443` tới máy đó. Không mở cổng PostgreSQL `5432`; Next.js chỉ chạy trên `127.0.0.1:3000`.
+- Mở Windows Firewall cho inbound TCP `80` và `443` (hoặc cho phép `caddy.exe` khi Windows hỏi).
+- Kiểm tra nhà mạng không dùng CGNAT và cho phép port forwarding. Nếu bị CGNAT, cần yêu cầu IP public hoặc thuê VPS làm reverse proxy/tunnel. Máy chạy 24/7 một mình chưa đủ để truy cập từ Internet.
+- Duy trì cập nhật hệ điều hành, UPS nếu có thể, và backup database sang thiết bị/lưu trữ khác.
+
+#### Chạy production
+
+Trong `.env`, đặt `DATABASE_URL`, mật khẩu admin mạnh, `PG_POOL_MAX=15` và domain public. Thay `app.example.com` trong `Caddyfile` bằng domain thật:
+
+```caddy
+app.example.com {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:3000
 }
 ```
-2. Thực thi migrations trên Cloudflare D1 (bộ chạy migration tự động chỉ dùng cho SQLite local):
-```bash
-npx wrangler d1 execute DB --file=migrations/0001_initial_schema.sql
-npx wrangler d1 execute DB --file=migrations/0002_seed_data.sql
-npx wrangler d1 execute DB --file=migrations/0003_auth_accounts.sql
-npx wrangler d1 execute DB --file=migrations/0004_simplify_password.sql
-npx wrangler d1 execute DB --file=migrations/0005_order_address_item_warranty.sql
-```
-> `0003` dùng `ALTER TABLE ADD COLUMN` nên chỉ chạy **một lần** trên mỗi database. Nếu cần đổi mật khẩu admin trên D1 sau khi deploy, chạy lệnh SQL tương đương `npm run user:password` với hash được sinh từ `lib/crypto.ts`.
 
-3. Deploy Pages:
-```bash
-npx wrangler pages deploy .next
+Khởi tạo hoặc cập nhật ứng dụng:
+
+```powershell
+npm ci
+npm run db:migrate
+npm run db:admin
+npm run build
 ```
+
+Mở PowerShell thứ nhất tại thư mục dự án và chạy Next.js:
+
+```powershell
+npm run start -- --hostname 127.0.0.1 --port 3000
+```
+
+Cài Caddy Windows từ `https://caddyserver.com/download`, mở PowerShell thứ hai tại thư mục dự án:
+
+```powershell
+caddy run --config .\Caddyfile
+```
+
+Khi DNS và port forwarding đúng, Caddy tự xin chứng chỉ TLS. Để chạy sau khi Windows khởi động lại, cấu hình hai lệnh trên bằng Windows Task Scheduler (trigger **At startup**), và đảm bảo dịch vụ PostgreSQL đã khởi động trước app.
+
+#### Sao lưu và cập nhật
+
+Sao lưu database thủ công bằng PostgreSQL client:
+
+```powershell
+New-Item -ItemType Directory -Force .\backups
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+pg_dump --host localhost --username pcm_app --dbname pcm_vanhanh --format custom --file ".\backups\pcm_vanhanh-$stamp.dump"
+```
+
+`pg_dump` sẽ hỏi mật khẩu database. Lưu thêm bản sao mã hóa ngoài máy chủ và thử khôi phục định kỳ. Khi cập nhật code, lấy source mới, chạy `npm ci`, `npm run db:migrate`, `npm run build`, rồi khởi động lại Next.js.

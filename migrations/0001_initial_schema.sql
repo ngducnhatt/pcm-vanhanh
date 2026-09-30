@@ -1,11 +1,10 @@
--- Migration 0001: Initial Schema for Computer Hardware Sales & Operations Management
--- Cloudflare D1 / SQLite compatible
+-- Migration 0001: Initial PostgreSQL schema for computer hardware operations.
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  phone TEXT,
-  email TEXT UNIQUE NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT UNIQUE,
   role TEXT NOT NULL CHECK(role IN (
     'admin',
     'kinh_doanh',
@@ -37,7 +36,7 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_name TEXT NOT NULL,
   customer_phone TEXT NOT NULL,
   customer_email TEXT,
-  tags TEXT NOT NULL DEFAULT '[]', -- JSON array of tags, e.g. ["moi", "kithuat", "baohanh", "thu_cu"]
+  tags TEXT NOT NULL DEFAULT '[]', -- JSON array of workflow tags, e.g. ["kithuat", "baohanh", "ship", "thu_cu"]
   note TEXT,
   sales_user_id TEXT NOT NULL REFERENCES users(id),
   status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN (

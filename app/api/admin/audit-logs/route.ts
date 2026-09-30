@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       .prepare(
         `SELECT id, actor_user_id, actor_name, action, target_user_id, target_name, detail, ip, created_at
          FROM auth_audit_log
-         ORDER BY created_at DESC, rowid DESC
+         ORDER BY created_at DESC, id DESC
          LIMIT ? OFFSET ?`
       )
       .bind(limit, offset)
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
         ...row,
         detail: row.detail ? safeParseJson(row.detail) : null,
       })),
-      total: total?.total ?? 0,
+      total: Number(total?.total ?? 0),
       limit,
       offset,
     });

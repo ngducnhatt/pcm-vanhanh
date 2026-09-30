@@ -46,7 +46,7 @@ const ALL_PERMISSIONS: Permission[] = [
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   admin: ALL_PERMISSIONS,
   kinh_doanh: ['order:create', 'order:edit', 'order:cancel', 'order:collect_payment', 'report:read'],
-  kho: ['order:edit', 'order:receive_kho', 'order:export_kho', 'report:read'],
+  kho: ['order:edit', 'order:receive_kho', 'order:export_kho', 'product:manage', 'report:read'],
   ky_thuat: ['order:complete_kithuat', 'report:read'],
   // Giám sát / điều phối: chỉ xem, không duyệt, không chặn luồng
   quan_ly_ky_thuat: ['report:read'],
@@ -55,10 +55,13 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   shipper: ['order:start_delivery', 'order:complete_delivery', 'order:collect_payment', 'report:read'],
 };
 
-export function can(role: Role | undefined | null, permission: Permission): boolean {
-  if (!role) return false;
-  const permissions = ROLE_PERMISSIONS[role];
-  return Array.isArray(permissions) && permissions.includes(permission);
+export function can(roles: Role | Role[] | undefined | null, permission: Permission): boolean {
+  if (!roles) return false;
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  return roleArray.some((role) => {
+    const permissions = ROLE_PERMISSIONS[role];
+    return Array.isArray(permissions) && permissions.includes(permission);
+  });
 }
 
 export function canManageAccounts(role: Role | undefined | null): boolean {

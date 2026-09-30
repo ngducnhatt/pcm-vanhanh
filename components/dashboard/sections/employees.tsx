@@ -57,7 +57,7 @@ interface Account {
   username: string | null;
   email: string;
   phone: string | null;
-  role: Role;
+  roles: Role[];
   is_active: number;
   created_at: string;
   last_login_at?: string | null;
@@ -112,7 +112,7 @@ const emptyForm = {
   username: '',
   email: '',
   phone: '',
-  role: 'kinh_doanh' as Role,
+  roles: ['kinh_doanh'] as Role[],
   password: '',
 };
 
@@ -135,7 +135,7 @@ function isLockedNow(account: Account): boolean {
  */
 export function EmployeesSection() {
   const { currentUser } = useAuth();
-  const isAdmin = currentUser?.role === "admin";
+  const isAdmin = currentUser?.roles?.includes("admin") || false;
 
   const [tab, setTab] = useState<'accounts' | 'audit'>('accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -193,7 +193,7 @@ export function EmployeesSection() {
     const byRole = ROLES.map((role) => ({
       role,
       label: ROLE_META[role].short,
-      count: accounts.filter((account) => account.role === role).length,
+      count: accounts.filter((account) => (account.roles || []).includes(role)).length,
     })).filter((item) => item.count > 0);
     return { total: accounts.length, active, locked, inactive: accounts.length - active, byRole };
   }, [accounts]);
@@ -201,9 +201,10 @@ export function EmployeesSection() {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return accounts.filter((account) => {
-      if (roleFilter !== "all" && account.role !== roleFilter) return false;
+      const roles = account.roles || [];
+      if (roleFilter !== "all" && !roles.includes(roleFilter)) return false;
       if (!term) return true;
-      return [account.name, account.username, account.email, account.phone, roleLabel(account.role)]
+      return [account.name, account.username, account.email, account.phone, ...roles.map(roleLabel)]
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(term));
     });
@@ -225,7 +226,7 @@ export function EmployeesSection() {
       username: account.username || '',
       email: account.email,
       phone: account.phone || '',
-      role: account.role,
+      roles: account.roles || [],
       password: '',
     });
     setFormError(null);
@@ -235,6 +236,12 @@ export function EmployeesSection() {
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     if (isSaving) return;
+
+    // Client-side validation: phone is required, email is optional
+    if (!form.phone.trim()) {
+      setFormError('Vui lòng nhập số điện thoại');
+      return;
+    }
 
     setFormError(null);
     setIsSaving(true);
@@ -246,18 +253,18 @@ export function EmployeesSection() {
         ? {
             name: form.name.trim(),
             username: form.username.trim().toLowerCase(),
-            email: form.email.trim(),
-            phone: form.phone.trim() || null,
-            role: form.role,
+            email: form.email.trim() || null,
+            phone: form.phone.trim(),
+            roles: form.roles,
             // Empty password -> the API generates a random one
             password: form.password ? form.password : null,
           }
         : {
             name: form.name.trim(),
             username: form.username.trim().toLowerCase(),
-            email: form.email.trim(),
-            phone: form.phone.trim() || null,
-            role: form.role,
+            email: form.email.trim() || null,
+            phone: form.phone.trim(),
+            roles: form.roles,
           };
 
       const res = await fetch(url, {
@@ -381,7 +388,7 @@ export function EmployeesSection() {
           icon={AlertTriangle}
           tone={isAdmin ? "danger" : "neutral"}
           label={isAdmin ? "Đang bị khoá" : "Quản trị viên"}
-          value={isAdmin ? stats.locked : accounts.filter((a) => a.role === "admin").length}
+          value={isAdmin ? stats.locked : accounts.filter((a) => (a.roles || []).includes("admin")).length}
         />
       </div>
 
@@ -496,8 +503,8 @@ export function EmployeesSection() {
                               {isSelf && <span className="ml-1.5 text-[10px] text-muted-foreground">(bạn)</span>}
                             </div>
                             <div className="truncate text-[11px] text-muted-foreground">
-                              {account.email}
-                              {account.phone ? ` · ${account.phone}` : ''}
+                              {account.phone}
+                              {account.email ? ` · ${account.email}` : ''}
                             </div>
                           </div>
                         </div>
@@ -506,13 +513,17 @@ export function EmployeesSection() {
                         {account.username || <span className="text-muted-foreground">chưa cấp</span>}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={chip('neutral')}>
-                          {(() => {
-                            const RoleIcon = ROLE_META[account.role].icon;
-                            return <RoleIcon className="h-3 w-3" />;
-                          })()}
-                          {roleLabel(account.role, true)}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {(account.roles || []).map((role) => {
+                            const RoleIcon = ROLE_META[role].icon;
+                            return (
+                              <span key={role} className={chip('neutral')}>
+                                <RoleIcon className="h-3 w-3" />
+                                {roleLabel(role, true)}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         {account.is_active !== 1 ? (
@@ -673,11 +684,10 @@ export function EmployeesSection() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="account-email" className="text-xs">Email *</Label>
+                  <Label htmlFor="account-email" className="text-xs">Email</Label>
                   <Input
                     id="account-email"
                     type="email"
-                    required
                     value={form.email}
                     onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
                     className="bg-secondary"
@@ -685,9 +695,10 @@ export function EmployeesSection() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="account-phone" className="text-xs">Số điện thoại</Label>
+                  <Label htmlFor="account-phone" className="text-xs">Số điện thoại *</Label>
                   <Input
                     id="account-phone"
+                    required
                     value={form.phone}
                     onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
                     className="bg-secondary"
@@ -695,22 +706,34 @@ export function EmployeesSection() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Vai trò *</Label>
-                  <Select
-                    value={form.role}
-                    onValueChange={(value) => setForm((prev) => ({ ...prev, role: value as Role }))}
-                  >
-                    <SelectTrigger className="w-full bg-secondary">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROLES.map((role) => (
-                        <SelectItem key={role} value={role}>
+                  <Label className="text-xs">Vai trò * (chọn nhiều)</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {ROLES.map((role) => {
+                      const isSelected = form.roles.includes(role);
+                      return (
+                        <button
+                          key={role}
+                          type="button"
+                          onClick={() => {
+                            setForm((prev) => ({
+                              ...prev,
+                              roles: isSelected
+                                ? prev.roles.filter((r) => r !== role)
+                                : [...prev.roles, role],
+                            }));
+                          }}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                            isSelected
+                              ? "bg-accent text-accent-foreground"
+                              : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
+                          )}
+                        >
                           {ROLE_META[role].label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 {formMode === 'create' && (
                   <div className="space-y-1.5">

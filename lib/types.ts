@@ -35,9 +35,9 @@ export type KmSource = 'gg_map' | 'manual';
 export interface User {
   id: string;
   name: string;
-  phone?: string | null;
-  email: string;
-  role: Role;
+  phone: string;
+  email?: string | null;
+  roles: Role[];
   is_active: number;
   created_at: string;
   /** Login credentials (populated by lib/auth, never the password hash) */

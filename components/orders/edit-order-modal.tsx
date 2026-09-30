@@ -1,20 +1,12 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Order, Product } from "@/lib/types";
 import { requiresRollbackToKho } from "@/lib/state-machine";
-import { Plus, Trash2, Search, AlertTriangle, Edit3 } from "lucide-react";
+import { AlertTriangle, Edit3, Plus, Search, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import {
-  chip,
-  FIELD_BASE,
-  LABEL_BASE,
-  SECTION_TITLE,
-  SURFACE_CARD,
-  TONE_WASH,
-} from "@/lib/ui";
+import { HoDonForm, HoDonLine } from "@/components/orders/hoadon-form";
 
 interface EditOrderModalProps {
   order: Order | null;
@@ -36,6 +28,7 @@ interface EditableItem {
 
 export function EditOrderModal({ order, isOpen, onClose, onSuccess }: EditOrderModalProps) {
   const [products, setProducts] = useState<Product[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -77,13 +70,15 @@ export function EditOrderModal({ order, isOpen, onClose, onSuccess }: EditOrderM
 
   const fetchProducts = async () => {
     try {
+      setIsLoadingProducts(true);
       const res = await fetch("/api/products");
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.products || []);
-      }
-    } catch {
-      // ignore
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Không thể tải danh mục sản phẩm");
+      setProducts(data.products || []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Không thể tải danh mục sản phẩm");
+    } finally {
+      setIsLoadingProducts(false);
     }
   };
 
@@ -138,6 +133,16 @@ export function EditOrderModal({ order, isOpen, onClose, onSuccess }: EditOrderM
     setItems(items.filter((i) => i.product_id !== productId));
   };
 
+  const formItems: HoDonLine[] = items.map((item) => ({
+    id: item.product_id,
+    name: item.name,
+    sku: item.sku,
+    serial_number: item.serial_number,
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+    warranty_months: item.warranty_months,
+  }));
+
   const handleSubmit = async () => {
     if (!customerName.trim() || !customerPhone.trim()) {
       toast.error("Vui lòng điền tên và số điện thoại");
@@ -187,274 +192,175 @@ export function EditOrderModal({ order, isOpen, onClose, onSuccess }: EditOrderM
     }
   };
 
+  const filteredProducts = products
+    .filter((product) =>
+      `${product.name} ${product.sku}`.toLowerCase().includes(productSearch.toLowerCase())
+    )
+    .slice(0, 8);
+
+  const productPicker = (
+    <div className="mt-3 space-y-2">
+      <label className="relative block w-full sm:ml-auto sm:max-w-sm">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+        <input
+          value={productSearch}
+          onChange={(event) => setProductSearch(event.target.value)}
+          placeholder="Tìm tên hoặc mã hàng để thêm vào hóa đơn"
+          className="h-9 w-full rounded border border-slate-300 bg-white pl-9 pr-3 text-xs text-black outline-none focus:border-blue-600"
+        />
+      </label>
+      {productSearch && (
+        <div className="max-h-32 overflow-y-auto border border-slate-300 bg-white">
+          {isLoadingProducts ? (
+            <div className="p-3 text-xs text-slate-600">Đang tải sản phẩm...</div>
+          ) : filteredProducts.length ? (
+            filteredProducts.map((product) => (
+              <button
+                key={product.id}
+                type="button"
+                onClick={() => addItem(product)}
+                className="flex w-full items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 text-left text-xs text-black last:border-0 hover:bg-slate-50"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{product.name}</span>
+                  <span className="text-[10px] text-slate-600">
+                    {product.sku} · Tồn kho: {product.stock_qty}
+                  </span>
+                </span>
+                <span className="shrink-0 font-semibold">
+                  {product.unit_price.toLocaleString("vi-VN")} đ
+                </span>
+                <Plus className="h-4 w-4 shrink-0" />
+              </button>
+            ))
+          ) : (
+            <div className="p-3 text-xs text-slate-600">Không tìm thấy sản phẩm phù hợp.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col p-6 overflow-hidden bg-card">
-        <DialogHeader className="pb-3">
-          <DialogTitle className={cn("flex items-center gap-2", SECTION_TITLE)}>
-            <Edit3 className="w-5 h-5 text-accent" />
-            Sửa đơn hàng: {order.invoice_no} ({order.customer_name})
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        className="flex h-[94dvh] w-[96vw] max-w-none flex-col gap-0 overflow-hidden border border-slate-300 bg-slate-100 p-0 sm:max-w-[min(96vw,1400px)]"
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>
+            <Edit3 className="inline h-4 w-4" /> Chỉnh sửa hóa đơn {order.invoice_no}
           </DialogTitle>
         </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto space-y-5 py-4 pr-1">
-          {/* Rollback Warning Alert */}
+        <div className="flex-1 overflow-y-auto p-2 sm:p-4">
           {isRollbackCandidate && (
-            <div
-              className={cn(
-                TONE_WASH.warning,
-                "p-3.5 rounded-lg text-foreground text-xs flex gap-3 items-start animate-pulse"
-              )}
-            >
-              <AlertTriangle className="w-5 h-5 shrink-0 text-warning mt-0.5" />
+            <div className="mx-auto mb-3 flex w-full max-w-5xl items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3.5 text-xs text-amber-950">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
               <div>
-                <span className="font-bold text-warning">
-                  CẢNH BÁO QUY TRÌNH ROLLBACK:
-                </span>{" "}
-                Đơn hàng hiện đang ở trạng thái{" "}
-                <span className="font-mono font-semibold px-1 rounded bg-warning/20">
-                  {order.status}
-                </span>{" "}
-                (đã qua khâu xuất kho). Nếu bạn điều chỉnh số lượng hoặc thêm/bớt linh kiện,
-                hệ thống sẽ <strong>tự động chuyển trạng thái đơn quay về &quot;kho_pending&quot;</strong> để
-                kho chuẩn bị và gán lại linh kiện. Toàn bộ serial cũ sẽ được lưu trong lịch sử để đối
-                chiếu thu hồi!
+                <strong className="text-amber-800">CẢNH BÁO QUY TRÌNH ROLLBACK:</strong>{" "}
+                Đơn đang ở trạng thái <strong>{order.status}</strong>. Khi chỉnh sửa, đơn sẽ quay
+                về kho chờ xuất để chuẩn bị lại; serial cũ vẫn được lưu trong lịch sử đối chiếu.
               </div>
             </div>
           )}
 
-          {/* Customer info */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className={cn(LABEL_BASE, "block mb-1")}>
-                Tên khách hàng
-              </label>
-              <input
-                type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className={FIELD_BASE}
-              />
-            </div>
-            <div>
-              <label className={cn(LABEL_BASE, "block mb-1")}>Địa chỉ khách hàng</label>
-              <input
-                type="text"
-                value={customerAddress}
-                onChange={(e) => setCustomerAddress(e.target.value)}
-                className={FIELD_BASE}
-              />
-            </div>
-            <div>
-              <label className={cn(LABEL_BASE, "block mb-1")}>
-                Số điện thoại
-              </label>
-              <input
-                type="text"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                className={FIELD_BASE}
-              />
-            </div>
-            <div>
-              <label className={cn(LABEL_BASE, "block mb-1")}>
-                Email
-              </label>
+          <HoDonForm
+            isEditable
+            invoiceNo={order.invoice_no}
+            invoiceDate={order.invoice_date}
+            salesName={order.sales_user?.name || "Kinh doanh"}
+            customerName={customerName}
+            customerPhone={customerPhone}
+            customerAddress={customerAddress}
+            note={note}
+            items={formItems}
+            totalAmount={totalAmount}
+            paidAmount={order.paid_amount || 0}
+            productPicker={productPicker}
+            onCustomerNameChange={setCustomerName}
+            onCustomerPhoneChange={setCustomerPhone}
+            onCustomerAddressChange={setCustomerAddress}
+            onNoteChange={setNote}
+            onQuantityChange={(id, quantity) => updateQuantity(id, quantity)}
+            onWarrantyChange={(id, warranty_months) =>
+              setItems((current) =>
+                current.map((item) =>
+                  item.product_id === id ? { ...item, warranty_months } : item
+                )
+              )
+            }
+            onRemoveItem={removeItem}
+          />
+
+          <section className="mx-auto mt-3 grid w-full max-w-5xl gap-3 rounded-md border border-slate-300 bg-white p-3 text-xs text-black md:grid-cols-2">
+            <label className="flex items-center gap-2 md:col-span-2">
+              <strong className="shrink-0">Email khách hàng (không bắt buộc):</strong>
               <input
                 type="email"
                 value={customerEmail}
-                onChange={(e) => setCustomerEmail(e.target.value)}
-                className={FIELD_BASE}
+                onChange={(event) => setCustomerEmail(event.target.value)}
+                maxLength={160}
+                className="min-w-0 flex-1 border-b border-dotted border-slate-400 bg-transparent px-1 py-1 outline-none focus:border-blue-600"
               />
-            </div>
-          </div>
-
-          {/* Tags */}
-          <div>
-            <label className={cn(LABEL_BASE, "block mb-1.5")}>
-              Tags quy trình
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <strong>Quy trình:</strong>
               {[
-                { id: "moi", label: "Hàng mới" },
-                { id: "kithuat", label: "🔧 Có yêu cầu Kỹ Thuật" },
-                { id: "baohanh", label: "🛡️ Có yêu cầu Bảo Hành" },
+                { id: "kithuat", label: "Kỹ thuật" },
+                { id: "baohanh", label: "Bảo hành" },
+                { id: "ship", label: "Ship" },
                 { id: "thu_cu", label: "Thu cũ đổi mới" },
-              ].map((t) => {
-                const isSelected = tags.includes(t.id);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => toggleTag(t.id)}
-                    className={cn(
-                      chip(isSelected ? "accent" : "neutral"),
-                      "cursor-pointer transition-colors",
-                      !isSelected && "hover:text-foreground"
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Add product list */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className={cn(LABEL_BASE, "font-semibold")}>
-                Thêm linh kiện mới vào đơn
-              </label>
-              <div className="relative w-64">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="Tìm linh kiện..."
-                  className="w-full h-8 pl-8 pr-3 rounded bg-secondary/60 border border-transparent text-xs focus:outline-none focus:border-accent/60 focus:bg-secondary"
-                />
-              </div>
-            </div>
-
-            <div className={cn(SURFACE_CARD, "grid grid-cols-1 md:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1")}>
-              {products
-                .filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()))
-                .slice(0, 6)
-                .map((product) => (
-                  <div
-                    key={product.id}
-                    onClick={() => addItem(product)}
-                    className="flex items-center justify-between p-2 rounded-md bg-secondary/40 hover:bg-secondary text-xs cursor-pointer"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <div className="font-medium text-foreground truncate">{product.name}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {product.unit_price.toLocaleString()}đ (Kho: {product.stock_qty})
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="p-1 rounded bg-accent/15 text-accent hover:bg-accent/25"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-            </div>
-
-            {/* Current items table */}
-            <div className={cn(SURFACE_CARD, "divide-y divide-border/50 overflow-hidden")}>
-              {items.map((item) => (
-                <div
-                  key={item.product_id}
-                  className="flex items-center justify-between p-2.5 text-xs"
+              ].map((tag) => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => toggleTag(tag.id)}
+                  aria-pressed={tags.includes(tag.id)}
+                  className={`rounded border px-2 py-1 ${
+                    tags.includes(tag.id)
+                      ? "border-blue-700 bg-blue-50 font-semibold"
+                      : "border-slate-300"
+                  }`}
                 >
-                  <div className="min-w-0 flex-1 pr-3">
-                    <div className="font-medium text-foreground">{item.name}</div>
-                    <div className="text-muted-foreground text-[11px]">
-                      SKU: {item.sku} | {item.unit_price.toLocaleString()}đ
-                      {item.serial_number && (
-                        <span className="ml-2 font-mono text-warning">
-                          (Serial: {item.serial_number})
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center rounded-lg bg-secondary/60">
-                      <button
-                        type="button"
-                        onClick={() => updateQuantity(item.product_id, item.quantity - 1)}
-                        className="w-6 h-6 flex items-center justify-center hover:bg-card text-foreground"
-                      >
-                        -
-                      </button>
-                      <span className="w-8 text-center font-mono font-medium">
-                        {item.quantity}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => updateQuantity(item.product_id, item.quantity + 1)}
-                        className="w-6 h-6 flex items-center justify-center hover:bg-card text-foreground"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <label className="flex items-center gap-1 whitespace-nowrap text-muted-foreground">
-                      BH
-                      <input
-                        type="number"
-                        min="0"
-                        value={item.warranty_months}
-                        onChange={(event) => {
-                          const warrantyMonths = Math.max(0, Number(event.target.value) || 0);
-                          setItems(items.map((current) =>
-                            current.product_id === item.product_id
-                              ? { ...current, warranty_months: warrantyMonths }
-                              : current
-                          ));
-                        }}
-                        className="h-7 w-16 rounded border border-border bg-background px-1 text-center text-xs text-foreground"
-                        aria-label={`Thời hạn bảo hành ${item.name} theo tháng`}
-                      />
-                      tháng
-                    </label>
-                    <span className="w-24 text-right font-semibold text-accent">
-                      {(item.unit_price * item.quantity).toLocaleString()}đ
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeItem(item.product_id)}
-                      className="text-muted-foreground hover:text-danger p-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
+                  {tag.label}
+                </button>
               ))}
-              <div className="flex justify-between items-center p-3 bg-secondary/40 font-bold text-sm">
-                <span>Tổng tiền hàng mới:</span>
-                <span className="text-accent text-base">{totalAmount.toLocaleString()}đ</span>
-              </div>
             </div>
-          </div>
-
-          {/* Reason */}
-          <div>
-            <label className={cn(LABEL_BASE, "block mb-1")}>
-              Lý do chỉnh sửa đơn hàng (sẽ ghi vào lịch sử đối chiếu) <span className="text-danger">*</span>
+            <label className="flex flex-col gap-1">
+              <strong>
+                Lý do chỉnh sửa (ghi vào lịch sử đối chiếu)
+              </strong>
+              <input
+                type="text"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="VD: Khách đổi linh kiện hoặc cập nhật thông tin..."
+                className="h-8 rounded border border-slate-300 px-2 outline-none focus:border-blue-600"
+              />
             </label>
-            <input
-              type="text"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="VD: Khách đổi sang card RTX 4070 Super, thêm 1 thanh RAM..."
-              className={FIELD_BASE}
-            />
-          </div>
+          </section>
         </div>
 
-        <DialogFooter className="pt-3 flex items-center justify-between sm:justify-between">
+        <DialogFooter className="shrink-0 flex-row flex-wrap justify-between border-t border-slate-300 bg-white px-3 py-2 sm:px-5">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-md text-xs font-medium text-muted-foreground hover:bg-secondary cursor-pointer"
+            className="rounded border border-slate-300 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50"
           >
-            Đóng
+            Hủy
           </button>
           <button
             type="button"
             disabled={isSubmitting}
             onClick={handleSubmit}
-            className="px-4 py-2 rounded-md text-xs font-semibold bg-accent text-accent-foreground hover:opacity-90 cursor-pointer disabled:opacity-50 shadow"
+            className="flex items-center gap-2 rounded bg-blue-700 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
           >
+            <ShoppingCart className="h-4 w-4" />
             {isSubmitting
               ? "Đang lưu..."
               : isRollbackCandidate
-              ? "Lưu thay đổi & Rollback về Kho (kho_pending)"
-              : "Lưu thay đổi"}
+                ? "Lưu thay đổi & chuyển lại Kho"
+                : "Lưu thay đổi"}
           </button>
         </DialogFooter>
       </DialogContent>
