@@ -40,7 +40,7 @@ export async function GET() {
       .prepare(
         `SELECT u.id, u.name, u.phone, u.email, u.is_active, u.created_at, u.username,
                 u.last_login_at, u.locked_until, u.failed_login_count,
-                COALESCE(json_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL), '[]') as roles
+                COALESCE(GROUP_CONCAT(ur.role), '') as roles
          FROM users u
          LEFT JOIN user_roles ur ON u.id = ur.user_id
          GROUP BY u.id
@@ -48,7 +48,11 @@ export async function GET() {
       )
       .all<any>();
 
-    return NextResponse.json({ users: result.results || [] });
+    const users = (result.results || []).map((u: any) => ({
+      ...u,
+      roles: typeof u.roles === 'string' && u.roles ? u.roles.split(',') : [],
+    }));
+    return NextResponse.json({ users });
   } catch (error: any) {
     console.error('Error listing users:', error);
     return NextResponse.json(
@@ -130,7 +134,7 @@ export async function POST(request: NextRequest) {
     const created = await db
       .prepare(
         `SELECT u.id, u.name, u.phone, u.email, u.is_active, u.created_at, u.username, u.last_login_at,
-                COALESCE(json_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL), '[]') as roles
+                COALESCE(GROUP_CONCAT(ur.role), '') as roles
          FROM users u
          LEFT JOIN user_roles ur ON u.id = ur.user_id
          WHERE u.id = ?
@@ -157,7 +161,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        user: created,
+        user: created ? { ...created, roles: typeof created.roles === 'string' && created.roles ? created.roles.split(',') : [] } : created,
         // Only returned once, so the admin can pass it on to the new account
         temporaryPassword: adminProvidedPassword ? null : password,
       },

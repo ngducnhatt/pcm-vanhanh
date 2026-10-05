@@ -200,7 +200,7 @@ export async function PATCH(
     const updated = await db
       .prepare(
         `SELECT u.id, u.name, u.phone, u.email, u.is_active, u.created_at, u.username, u.last_login_at, u.locked_until, u.failed_login_count,
-                COALESCE(json_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL), '[]') as roles
+                COALESCE(GROUP_CONCAT(ur.role), '') as roles
          FROM users u
          LEFT JOIN user_roles ur ON u.id = ur.user_id
          WHERE u.id = ?
@@ -209,7 +209,8 @@ export async function PATCH(
       .bind(id)
       .first<any>();
 
-    return NextResponse.json({ success: true, user: updated, changes, sessionsRevoked: mustRevoke });
+    const parsedUser = updated ? { ...updated, roles: typeof updated.roles === 'string' && updated.roles ? updated.roles.split(',') : [] } : updated;
+    return NextResponse.json({ success: true, user: parsedUser, changes, sessionsRevoked: mustRevoke });
   } catch (error: any) {
     console.error('Error updating user:', error);
     return NextResponse.json(

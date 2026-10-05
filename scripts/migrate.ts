@@ -1,13 +1,14 @@
 import 'dotenv/config';
-import { getDb } from '../lib/db';
+import { closeDb, getDb } from '../lib/db';
 
 async function main() {
   if (!process.env.DATABASE_URL) {
-    throw new Error('DATABASE_URL must point to PostgreSQL before running migrations.');
+    throw new Error('DATABASE_URL must point to MySQL/MariaDB before running migrations.');
   }
 
   await getDb().prepare('SELECT 1').first();
-  console.log('PostgreSQL migrations are up to date.');
+  console.log('MySQL migrations are up to date.');
+  await closeDb();
 }
 
 main().catch((error) => {

@@ -18,15 +18,15 @@ try {
     exit 1
 }
 
-# Kiểm tra PostgreSQL
-Write-Host "[2/7] Kiem tra PostgreSQL..." -ForegroundColor Yellow
-$pgBin = "C:\Program Files\PostgreSQL\18\bin"
-if (-not (Test-Path "$pgBin\psql.exe")) {
-    Write-Host "  PostgreSQL khong tim thay tai $pgBin" -ForegroundColor Red
+# Kiểm tra MySQL/MariaDB (XAMPP)
+Write-Host "[2/7] Kiem tra MySQL/MariaDB..." -ForegroundColor Yellow
+$mysqlBin = "C:\xampp\mysql\bin"
+if (-not (Test-Path "$mysqlBin\mysql.exe")) {
+    Write-Host "  MySQL khong tim thay tai $mysqlBin" -ForegroundColor Red
     exit 1
 }
-$env:Path = "$pgBin;$env:Path"
-Write-Host "  PostgreSQL 18 - OK" -ForegroundColor Green
+$env:Path = "$mysqlBin;$env:Path"
+Write-Host "  MySQL/MariaDB - OK" -ForegroundColor Green
 
 # Cai dat dependencies
 Write-Host "[3/7] Cai dat npm dependencies..." -ForegroundColor Yellow
@@ -41,24 +41,26 @@ if (-not (Test-Path "node_modules")) {
 }
 Write-Host "  Dependencies OK" -ForegroundColor Green
 
-# Nhap mat khau postgres (cho phep nhap lai neu sai)
-Write-Host "[4/7] Ket noi PostgreSQL..." -ForegroundColor Yellow
+# Nhap mat khau root MySQL (cho phep nhap lai neu sai)
+Write-Host "[4/7] Ket noi MySQL..." -ForegroundColor Yellow
 $maxAttempts = 3
 $connected = $false
 
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-    $postgresPassword = Read-Host "  Nhap mat khau user postgres (lan $attempt/$maxAttempts)" -AsSecureString
-    $postgresPasswordPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($postgresPassword)
+    $mysqlPassword = Read-Host "  Nhap mat khau user root MySQL (lan $attempt/$maxAttempts, de trong neu khong co)" -AsSecureString
+    $mysqlPasswordPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($mysqlPassword)
     )
-    
-    $env:PGPASSWORD = $postgresPasswordPlain
-    
+
     # Thu ket noi
-    $testResult = psql -U postgres -d postgres -tAc "SELECT 1" 2>&1
+    if ([string]::IsNullOrEmpty($mysqlPasswordPlain)) {
+        $testResult = mysql -u root -e "SELECT 1" 2>&1
+    } else {
+        $testResult = mysql -u root -p"$mysqlPasswordPlain" -e "SELECT 1" 2>&1
+    }
     if ($LASTEXITCODE -eq 0) {
         $connected = $true
-        Write-Host "  Ket noi PostgreSQL thanh cong!" -ForegroundColor Green
+        Write-Host "  Ket noi MySQL thanh cong!" -ForegroundColor Green
         break
     } else {
         Write-Host "  Mat khau sai! Vui long thu lai." -ForegroundColor Red
@@ -66,42 +68,23 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 }
 
 if (-not $connected) {
-    Write-Host "  Khong the ket noi PostgreSQL sau $maxAttempts lan thu." -ForegroundColor Red
+    Write-Host "  Khong the ket noi MySQL sau $maxAttempts lan thu." -ForegroundColor Red
     exit 1
 }
 
-# Tao database va user
-Write-Host "  Tao database va user..." -ForegroundColor Yellow
+$mysqlArgs = @("-u", "root")
+if (-not [string]::IsNullOrEmpty($mysqlPasswordPlain)) { $mysqlArgs += "-p$mysqlPasswordPlain" }
 
-# Kiem tra database da ton tai chua
-$dbExists = psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='pcm_vanhanh'" 2>$null
-if ($dbExists -ne "1") {
-    psql -U postgres -d postgres -c "CREATE DATABASE pcm_vanhanh;" 2>&1 | Out-Null
-    Write-Host "  Database 'pcm_vanhanh' da tao" -ForegroundColor Green
-} else {
-    Write-Host "  Database 'pcm_vanhanh' da ton tai" -ForegroundColor Green
-}
-
-# Kiem tra user pcm_app da ton tai chua
-$userExists = psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='pcm_app'" 2>$null
-if ($userExists -ne "1") {
-    psql -U postgres -d postgres -c "CREATE USER pcm_app WITH PASSWORD 'pcm_app_password';" 2>&1 | Out-Null
-    Write-Host "  User 'pcm_app' da tao" -ForegroundColor Green
-} else {
-    Write-Host "  User 'pcm_app' da ton tai" -ForegroundColor Green
-}
-
-# Cap quyen cho pcm_app tren database va schema public
-Write-Host "  Cap quyen cho pcm_app..." -ForegroundColor Yellow
-psql -U postgres -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE pcm_vanhanh TO pcm_app;" 2>&1 | Out-Null
-psql -U postgres -d pcm_vanhanh -c "GRANT ALL ON SCHEMA public TO pcm_app;" 2>&1 | Out-Null
-psql -U postgres -d pcm_vanhanh -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO pcm_app;" 2>&1 | Out-Null
-Write-Host "  Quyen da cap" -ForegroundColor Green
+# Tao database
+Write-Host "  Tao database..." -ForegroundColor Yellow
+mysql @mysqlArgs -e "CREATE DATABASE IF NOT EXISTS pcm_vanhanh CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>&1 | Out-Null
+Write-Host "  Database 'pcm_vanhanh' san sang" -ForegroundColor Green
 
 # Cap nhat .env
 Write-Host "[5/7] Cap nhat .env..." -ForegroundColor Yellow
+$dbUrl = if ([string]::IsNullOrEmpty($mysqlPasswordPlain)) { "mysql://root:@localhost:3306/pcm_vanhanh" } else { "mysql://root:${mysqlPasswordPlain}@localhost:3306/pcm_vanhanh" }
 $envContent = @"
-DATABASE_URL=postgresql://pcm_app:pcm_app_password@localhost:5432/pcm_vanhanh
+DATABASE_URL=$dbUrl
 PG_POOL_MAX=5
 GOOGLE_MAPS_API_KEY=
 
@@ -116,7 +99,7 @@ Write-Host "  .env da cap nhat" -ForegroundColor Green
 
 # Chay migrations
 Write-Host "[6/7] Chay database migrations..." -ForegroundColor Yellow
-$env:DATABASE_URL = "postgresql://pcm_app:pcm_app_password@localhost:5432/pcm_vanhanh"
+$env:DATABASE_URL = $dbUrl
 npm run db:migrate
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Migration that bai!" -ForegroundColor Red

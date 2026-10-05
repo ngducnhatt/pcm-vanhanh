@@ -8,7 +8,7 @@
  * Mọi phiên đăng nhập đang hoạt động của tài khoản đó sẽ bị huỷ.
  */
 import 'dotenv/config';
-import { getDb } from '../lib/db';
+import { closeDb, getDb } from '../lib/db';
 import { generateToken, hashPassword } from '../lib/crypto';
 import { checkPasswordPolicy, writeAuditLog } from '../lib/auth';
 
@@ -67,6 +67,7 @@ async function main() {
   console.log(`Mật khẩu: ${password}`);
   console.log('Tài khoản đã được mở khoá và kích hoạt lại nếu trước đó bị khoá.');
   console.log('Tất cả phiên đăng nhập cũ đã bị huỷ.\n');
+  await closeDb();
 }
 
 main();

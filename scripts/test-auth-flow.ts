@@ -1,6 +1,6 @@
 /**
  * Smoke test cho hệ thống đăng nhập & quản lý tài khoản.
- * Chỉ chạy trên PostgreSQL database riêng có tên kết thúc bằng `_test`.
+ * Chỉ chạy trên MySQL/MariaDB database riêng có tên kết thúc bằng `_test`.
  */
 import dotenv from 'dotenv';
 import { getDb } from '../lib/db';
@@ -41,7 +41,7 @@ async function main() {
   dotenv.config({ path: '.env.test' });
   const testDatabaseUrl = process.env.TEST_DATABASE_URL;
   if (!testDatabaseUrl) {
-    throw new Error('Set TEST_DATABASE_URL to a dedicated PostgreSQL database ending in _test.');
+    throw new Error('Set TEST_DATABASE_URL to a dedicated MySQL/MariaDB database ending in _test.');
   }
   const databaseName = new URL(testDatabaseUrl).pathname.slice(1);
   if (!databaseName.endsWith('_test')) {

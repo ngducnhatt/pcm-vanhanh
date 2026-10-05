@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { checkPasswordPolicy } from '../lib/auth';
 import { hashPassword } from '../lib/crypto';
-import { getDb } from '../lib/db';
+import { closeDb, getDb } from '../lib/db';
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -12,7 +12,7 @@ async function main() {
   const password = process.env.ADMIN_PASSWORD;
   const phone = process.env.ADMIN_PHONE?.trim();
 
-  if (!databaseUrl) throw new Error('DATABASE_URL must point to PostgreSQL.');
+  if (!databaseUrl) throw new Error('DATABASE_URL must point to MySQL/MariaDB.');
   if (!name || !username || !password || !phone) {
     throw new Error('Set ADMIN_NAME, ADMIN_USERNAME, ADMIN_PASSWORD, and ADMIN_PHONE.');
   }
@@ -28,12 +28,19 @@ async function main() {
   const existing = await db
     .prepare('SELECT id, role FROM users WHERE LOWER(username) = LOWER(?) OR (LOWER(email) = LOWER(?) AND email IS NOT NULL)')
     .bind(username, email || '')
-    .first<{ id: string; role: string }>();
+    .first<{ id: string; role: string | null }>();
   if (existing) {
-    if (!existing.roles.includes('admin')) {
+    const roles = await db
+      .prepare('SELECT role FROM user_roles WHERE user_id = ?')
+      .bind(existing.id)
+      .all<{ role: string }>();
+    const roleList = roles.results.map((r) => r.role);
+    if (existing.role) roleList.push(existing.role);
+    if (!roleList.includes('admin')) {
       throw new Error('ADMIN_USERNAME or ADMIN_EMAIL already belongs to a non-admin account.');
     }
     console.log('An admin account already exists; no account data was changed.');
+    await closeDb();
     return;
   }
 
@@ -55,6 +62,7 @@ async function main() {
     .run();
 
   console.log(`Created initial administrator account "${username}".`);
+  await closeDb();
 }
 
 main().catch((error) => {

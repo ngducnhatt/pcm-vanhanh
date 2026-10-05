@@ -1,11 +1,11 @@
--- Migration 0001: Initial PostgreSQL schema for computer hardware operations.
+-- Migration 0001: Initial MySQL/MariaDB schema for computer hardware operations.
 
 CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
+  id VARCHAR(64) PRIMARY KEY,
   name TEXT NOT NULL,
   phone TEXT NOT NULL,
-  email TEXT UNIQUE,
-  role TEXT NOT NULL CHECK(role IN (
+  email VARCHAR(255) UNIQUE,
+  role VARCHAR(32) NOT NULL CHECK(role IN (
     'admin',
     'kinh_doanh',
     'kho',
@@ -16,30 +16,30 @@ CREATE TABLE IF NOT EXISTS users (
     'shipper'
   )),
   is_active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS products (
-  id TEXT PRIMARY KEY,
-  sku TEXT UNIQUE NOT NULL,
+  id VARCHAR(64) PRIMARY KEY,
+  sku VARCHAR(255) UNIQUE NOT NULL,
   name TEXT NOT NULL,
   unit_price INTEGER NOT NULL,
   stock_qty INTEGER NOT NULL DEFAULT 0,
   category TEXT,
-  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS orders (
-  id TEXT PRIMARY KEY,
-  invoice_no TEXT UNIQUE NOT NULL,
+  id VARCHAR(64) PRIMARY KEY,
+  invoice_no VARCHAR(255) UNIQUE NOT NULL,
   invoice_date TEXT NOT NULL,
   customer_name TEXT NOT NULL,
   customer_phone TEXT NOT NULL,
   customer_email TEXT,
-  tags TEXT NOT NULL DEFAULT '[]', -- JSON array of workflow tags, e.g. ["kithuat", "baohanh", "ship", "thu_cu"]
+  tags VARCHAR(1024) NOT NULL DEFAULT '[]', -- JSON array of workflow tags, e.g. ["kithuat", "baohanh", "ship", "thu_cu"]
   note TEXT,
-  sales_user_id TEXT NOT NULL REFERENCES users(id),
-  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN (
+  sales_user_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  status VARCHAR(32) NOT NULL DEFAULT 'draft' CHECK(status IN (
     'draft',
     'new',
     'kho_pending',
@@ -55,52 +55,52 @@ CREATE TABLE IF NOT EXISTS orders (
     'completed',
     'cancelled'
   )),
-  payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK(payment_status IN ('unpaid', 'partial', 'full')),
-  related_order_id TEXT REFERENCES orders(id), -- Cho đơn bảo hành liên kết tới đơn gốc
+  payment_status VARCHAR(32) NOT NULL DEFAULT 'unpaid' CHECK(payment_status IN ('unpaid', 'partial', 'full')),
+  related_order_id VARCHAR(64) REFERENCES orders(id), -- Cho đơn bảo hành liên kết tới đơn gốc
   total_amount INTEGER NOT NULL DEFAULT 0,
   paid_amount INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
-  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS order_items (
-  id TEXT PRIMARY KEY,
-  order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  product_id TEXT NOT NULL REFERENCES products(id),
+  id VARCHAR(64) PRIMARY KEY,
+  order_id VARCHAR(64) NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id VARCHAR(64) NOT NULL REFERENCES products(id),
   quantity INTEGER NOT NULL DEFAULT 1,
   unit_price INTEGER NOT NULL,
   serial_number TEXT, -- điền khi kho xuất
-  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS order_status_history (
-  id TEXT PRIMARY KEY,
-  order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  status TEXT NOT NULL,
-  changed_by_user_id TEXT NOT NULL REFERENCES users(id),
+  id VARCHAR(64) PRIMARY KEY,
+  order_id VARCHAR(64) NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  status VARCHAR(32) NOT NULL,
+  changed_by_user_id VARCHAR(64) NOT NULL REFERENCES users(id),
   note TEXT,
   snapshot_serials TEXT, -- JSON snapshot lưu lại serial cũ khi bị rollback
-  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS payments (
-  id TEXT PRIMARY KEY,
-  order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  method TEXT NOT NULL CHECK(method IN ('qr', 'cash', 'transfer')),
+  id VARCHAR(64) PRIMARY KEY,
+  order_id VARCHAR(64) NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  method VARCHAR(32) NOT NULL CHECK(method IN ('qr', 'cash', 'transfer')),
   amount INTEGER NOT NULL,
-  collected_by_user_id TEXT NOT NULL REFERENCES users(id),
-  paid_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  collected_by_user_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  paid_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS shipments (
-  id TEXT PRIMARY KEY,
-  order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  shipper_id TEXT NOT NULL REFERENCES users(id),
-  assigned_by_user_id TEXT NOT NULL REFERENCES users(id),
+  id VARCHAR(64) PRIMARY KEY,
+  order_id VARCHAR(64) NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  shipper_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  assigned_by_user_id VARCHAR(64) NOT NULL REFERENCES users(id),
   address TEXT NOT NULL,
   distance_km REAL NOT NULL,
-  km_source TEXT NOT NULL CHECK(km_source IN ('gg_map', 'manual')),
-  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  km_source VARCHAR(32) NOT NULL CHECK(km_source IN ('gg_map', 'manual')),
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Indices for performance

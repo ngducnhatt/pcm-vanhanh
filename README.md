@@ -5,10 +5,10 @@ Hệ thống quản lý vận hành cho cửa hàng linh kiện máy tính & bui
 | | |
 |---|---|
 | Tên dự án | `pcm-van-hanh` |
-| Database production khuyến nghị | PostgreSQL |
+| Database production khuyến nghị | MySQL/MariaDB (XAMPP) |
 | Cổng mặc định | `http://localhost:3000` |
 
-Dự án Web App phát triển bằng **Next.js (App Router, TypeScript)**, chạy self-host trên máy tính công ty với Node.js và PostgreSQL cài trực tiếp trên Windows. Không cần Docker, Cloudflare D1 hay dịch vụ database bên ngoài.
+Dự án Web App phát triển bằng **Next.js (App Router, TypeScript)**, chạy self-host trên máy tính công ty với Node.js và MySQL/MariaDB (XAMPP) cài trực tiếp trên Windows. Không cần Docker, Cloudflare D1 hay dịch vụ database bên ngoài.
 
 ---
 
@@ -95,7 +95,7 @@ sequenceDiagram
     participant U as Người dùng
     participant B as Browser
     participant A as /api/auth/login
-    participant D as PostgreSQL
+    participant D as MySQL/MariaDB (XAMPP)
 
     U->>B: Nhập tên đăng nhập + mật khẩu
     B->>A: POST /api/auth/login
@@ -134,7 +134,7 @@ sequenceDiagram
 
 ### 3.3. Tài khoản quản trị ban đầu
 
-Không có tài khoản mẫu hoặc mật khẩu mặc định. Khi triển khai PostgreSQL lần đầu, `db:admin` tạo duy nhất tài khoản admin theo `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME` và `ADMIN_PASSWORD` trong `.env`. Các tài khoản nhân viên được tạo sau khi đăng nhập với tư cách admin.
+Không có tài khoản mẫu hoặc mật khẩu mặc định. Khi triển khai MySQL/MariaDB (XAMPP) lần đầu, `db:admin` tạo duy nhất tài khoản admin theo `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME` và `ADMIN_PASSWORD` trong `.env`. Các tài khoản nhân viên được tạo sau khi đăng nhập với tư cách admin.
 
 ### 3.4. Mục "Nhân viên & Vai trò" (gộp cả quản lý tài khoản)
 
@@ -184,7 +184,7 @@ Lệnh này cũng mở khoá tài khoản, kích hoạt lại tài khoản bị 
 
 ---
 
-## 4. Cấu Trúc Database (PostgreSQL)
+## 4. Cấu Trúc Database (MySQL/MariaDB)
 
 - **users**: `id, name, phone, email, role, is_active, created_at` + `username, password_hash, last_login_at, failed_login_count, locked_until, updated_at`
 - **sessions**: `id (sha256 token), user_id, user_agent, ip, created_at, last_seen_at, expires_at`
@@ -195,7 +195,7 @@ Lệnh này cũng mở khoá tài khoản, kích hoạt lại tài khoản bị 
 - **order_status_history**: `id, order_id, status, changed_by_user_id, note, snapshot_serials, created_at`
 - **payments**: `id, order_id, method ("qr" | "cash" | "transfer"), amount, collected_by_user_id, paid_at`
 - **shipments**: `id, order_id, shipper_id, assigned_by_user_id, address, distance_km, km_source ("gg_map" | "manual"), created_at`
-- **schema_migrations**: `name, applied_at` (theo dõi migration PostgreSQL đã chạy)
+- **schema_migrations**: `name, applied_at` (theo dõi migration MySQL/MariaDB (XAMPP) đã chạy)
 
 ---
 
@@ -221,7 +221,7 @@ Lệnh này cũng mở khoá tài khoản, kích hoạt lại tài khoản bị 
 
 ### Chạy local trên Windows (không dùng Docker)
 
-Cài Node.js 22 LTS và PostgreSQL 17 trực tiếp trên Windows. Cài PostgreSQL từ trang chính thức và ghi nhớ mật khẩu quản trị `postgres`; giữ dịch vụ PostgreSQL tự khởi động cùng Windows.
+Cài Node.js 22 LTS và XAMPP trực tiếp trên Windows. Bật module **Apache** và **MySQL** trong XAMPP Control Panel.
 
 Mở PowerShell tại thư mục dự án:
 
@@ -231,18 +231,15 @@ notepad .env
 npm ci
 ```
 
-Trong `.env`, cấu hình `DATABASE_URL` tới PostgreSQL local, ví dụ `postgresql://pcm_app:yourpassword@localhost:5432/pcm_vanhanh`. Dùng mật khẩu chỉ gồm chữ và số để tránh cần URL-encode ký tự đặc biệt. Điền `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME` và `ADMIN_PASSWORD`.
+Trong `.env`, cấu hình `DATABASE_URL` tới MySQL (XAMPP) local, ví dụ `mysql://root:yourpassword@localhost:3306/pcm_vanhanh`. Dùng mật khẩu chỉ gồm chữ và số để tránh cần URL-encode ký tự đặc biệt. Điền `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME` và `ADMIN_PASSWORD`.
 
-Mở SQL Shell (psql) từ PostgreSQL, kết nối bằng tài khoản `postgres`, rồi tạo role/database:
+Mở phpMyAdmin (`http://localhost/phpmyadmin`) hoặc MySQL client, kết nối bằng tài khoản `root`, rồi tạo database:
 
 ```sql
-CREATE ROLE pcm_app LOGIN;
-\password pcm_app
-CREATE DATABASE pcm_vanhanh OWNER pcm_app;
-\q
+CREATE DATABASE pcm_vanhanh CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-Khi nhập mật khẩu cho `pcm_app`, dùng mật khẩu khớp với `DATABASE_URL`. Trong PowerShell:
+Trong PowerShell:
 
 ```powershell
 npm run db:migrate
@@ -250,14 +247,14 @@ npm run db:admin
 npm run dev
 ```
 
-Mở `http://localhost:3000`; dừng server bằng `Ctrl+C`. Mọi dữ liệu nghiệp vụ được lưu trong PostgreSQL.
+Mở `http://localhost:3000`; dừng server bằng `Ctrl+C`. Mọi dữ liệu nghiệp vụ được lưu trong MySQL/MariaDB (XAMPP).
 
 #### Chạy kiểm thử
 
-`npm run test:flow` kiểm thử quy tắc chuyển trạng thái, không cần database. Kiểm thử đăng nhập cần PostgreSQL database riêng, tuyệt đối không dùng database production:
+`npm run test:flow` kiểm thử quy tắc chuyển trạng thái, không cần database. Kiểm thử đăng nhập cần MySQL/MariaDB (XAMPP) database riêng, tuyệt đối không dùng database production:
 
 ```sql
-CREATE DATABASE pcm_vanhanh_test OWNER pcm_app;
+CREATE DATABASE pcm_vanhanh_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 Đặt `TEST_DATABASE_URL` trong `.env.test` trỏ tới `pcm_vanhanh_test`, sau đó chạy `npm run test:auth`. Script từ chối database không có tên kết thúc bằng `_test`.
@@ -270,13 +267,13 @@ npm run test:auth
 
 ### Hosting trên máy công ty, truy cập từ xa
 
-Production chạy trực tiếp trên Windows: PostgreSQL lưu dữ liệu, Next.js phục vụ web và Caddy chạy native làm reverse proxy HTTPS. Nhân viên tại máy chủ mở `http://localhost:3000`; nhân viên ngoài công ty truy cập `https://<domain>` qua Internet/4G.
+Production chạy trực tiếp trên Windows: MySQL/MariaDB (XAMPP) lưu dữ liệu, Next.js phục vụ web và Caddy chạy native làm reverse proxy HTTPS. Nhân viên tại máy chủ mở `http://localhost:3000`; nhân viên ngoài công ty truy cập `https://<domain>` qua Internet/4G.
 
 #### Chuẩn bị truy cập Internet
 
 - Máy chủ phải luôn bật và có Internet hoạt động. Nhân viên truy cập từ xa cần Internet/4G; nếu đường Internet của máy công ty bị ngắt thì họ không thể kết nối.
 - Cần domain/subdomain riêng; tạo DNS `A` record trỏ tới IP public của công ty. Nếu IP public thay đổi, cấu hình DDNS hoặc đăng ký IP tĩnh.
-- Đặt IP LAN tĩnh cho máy chủ; trên router/firewall chỉ chuyển tiếp TCP `80` và `443` tới máy đó. Không mở cổng PostgreSQL `5432`; Next.js chỉ chạy trên `127.0.0.1:3000`.
+- Đặt IP LAN tĩnh cho máy chủ; trên router/firewall chỉ chuyển tiếp TCP `80` và `443` tới máy đó. Không mở cổng MySQL `3306` ra Internet; Next.js chỉ chạy trên `127.0.0.1:3000`.
 - Mở Windows Firewall cho inbound TCP `80` và `443` (hoặc cho phép `caddy.exe` khi Windows hỏi).
 - Kiểm tra nhà mạng không dùng CGNAT và cho phép port forwarding. Nếu bị CGNAT, cần yêu cầu IP public hoặc thuê VPS làm reverse proxy/tunnel. Máy chạy 24/7 một mình chưa đủ để truy cập từ Internet.
 - Duy trì cập nhật hệ điều hành, UPS nếu có thể, và backup database sang thiết bị/lưu trữ khác.
@@ -313,16 +310,16 @@ Cài Caddy Windows từ `https://caddyserver.com/download`, mở PowerShell th�
 caddy run --config .\Caddyfile
 ```
 
-Khi DNS và port forwarding đúng, Caddy tự xin chứng chỉ TLS. Để chạy sau khi Windows khởi động lại, cấu hình hai lệnh trên bằng Windows Task Scheduler (trigger **At startup**), và đảm bảo dịch vụ PostgreSQL đã khởi động trước app.
+Khi DNS và port forwarding đúng, Caddy tự xin chứng chỉ TLS. Để chạy sau khi Windows khởi động lại, cấu hình hai lệnh trên bằng Windows Task Scheduler (trigger **At startup**), và đảm bảo dịch vụ MySQL/MariaDB (XAMPP) đã khởi động trước app.
 
 #### Sao lưu và cập nhật
 
-Sao lưu database thủ công bằng PostgreSQL client:
+Sao lưu database thủ công bằng MySQL/MariaDB (XAMPP) client:
 
 ```powershell
 New-Item -ItemType Directory -Force .\backups
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-pg_dump --host localhost --username pcm_app --dbname pcm_vanhanh --format custom --file ".\backups\pcm_vanhanh-$stamp.dump"
+mysqldump -u root -p pcm_vanhanh > .\backups\pcm_vanhanh-$stamp.sql
 ```
 
-`pg_dump` sẽ hỏi mật khẩu database. Lưu thêm bản sao mã hóa ngoài máy chủ và thử khôi phục định kỳ. Khi cập nhật code, lấy source mới, chạy `npm ci`, `npm run db:migrate`, `npm run build`, rồi khởi động lại Next.js.
+`mysqldump` sẽ hỏi mật khẩu database. Lưu thêm bản sao mã hóa ngoài máy chủ và thử khôi phục định kỳ. Khi cập nhật code, lấy source mới, chạy `npm ci`, `npm run db:migrate`, `npm run build`, rồi khởi động lại Next.js.
