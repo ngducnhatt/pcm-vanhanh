@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search')?.trim() || '';
+    const limit = Math.min(Math.max(Number(searchParams.get('limit')) || 100, 1), 200);
 
     const db = getDb();
     let query = 'SELECT id, sku, name, unit_price, stock_qty, category, created_at FROM products';
@@ -30,7 +31,8 @@ export async function GET(request: NextRequest) {
       params.push(term, term, term);
     }
 
-    query += ' ORDER BY name ASC';
+    query += ' ORDER BY name ASC LIMIT ?';
+    params.push(limit);
 
     const result = await db.prepare(query).bind(...params).all<Product>();
 

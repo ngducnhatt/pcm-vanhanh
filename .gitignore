@@ -10,7 +10,6 @@
 # production
 /build
 /backups/
-/data/
 
 # debug
 npm-debug.log*
@@ -18,10 +17,6 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env*
-!.env.example
-!.env.test.example
 
 # vercel
 .vercel

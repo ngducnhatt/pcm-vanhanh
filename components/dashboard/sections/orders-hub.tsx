@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { chip } from "@/lib/ui";
+import { chip, ROLE_META, roleChip } from "@/lib/ui";
 import { CreateOrderModal } from "@/components/orders/create-order-modal";
 import { EditOrderModal } from "@/components/orders/edit-order-modal";
 import { OrderDetailsModal } from "@/components/orders/order-details-modal";
@@ -59,10 +59,12 @@ const ORDER_STATUS_FILTERS: { value: OrderStatus; label: string }[] = [
 
 interface OrdersHubProps {
   initialQueue?: string;
+  dateRange?: { from: string; to: string } | null;
 }
 
-export function OrdersHub({ initialQueue }: OrdersHubProps) {
-  const { currentUser, role } = useAuth();
+export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
+  const { currentUser, roles } = useAuth();
+  const role = roles[0] ?? currentUser?.roles?.[0];
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -87,13 +89,18 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
       setIsLoading(true);
       const params = new URLSearchParams();
 
+      // Trung tâm đơn hàng (initialQueue=all): mọi người xem toàn bộ công ty.
+      // Hàng đợi Vận hành: lọc riêng theo từng vai trò (server ép theo role thật).
+      const isCenter = (initialQueue || "all") === "all";
+      params.append("scope", isCenter ? "all" : "queue");
+
       // If user is admin and chosen a tab
       if (role === "admin") {
         if (adminTab !== "all") {
           params.append("role_queue", adminTab);
         }
-      } else {
-        // Enforce role-based queue automatically
+      } else if (!isCenter) {
+        // Enforce role-based queue automatically (chỉ ở màn Vận hành)
         params.append("role_queue", role);
       }
 
@@ -102,6 +109,10 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
       }
       if (selectedPaymentStatus !== "all") {
         params.append("payment_status", selectedPaymentStatus);
+      }
+      if (dateRange?.from && dateRange?.to) {
+        params.append("from", dateRange.from);
+        params.append("to", dateRange.to);
       }
 
       const res = await fetch(`/api/orders?${params.toString()}`, { cache: "no-store" });
@@ -114,11 +125,33 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [role, adminTab, searchQuery, selectedPaymentStatus]);
+  }, [role, adminTab, searchQuery, selectedPaymentStatus, initialQueue, dateRange?.from, dateRange?.to]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  // Mở đơn từ thông báo: bấm chuông/trang thông báo -> tự mở chi tiết đơn đó
+  useEffect(() => {
+    const openPending = () => {
+      try {
+        const pending = localStorage.getItem("pcm_open_order");
+        if (pending) {
+          localStorage.removeItem("pcm_open_order");
+          setSelectedOrderForDetails(pending);
+        }
+      } catch {
+        /* bỏ qua */
+      }
+    };
+    openPending();
+    const handler = (e: Event) => {
+      const orderId = (e as CustomEvent).detail?.orderId;
+      if (typeof orderId === "string" && orderId) setSelectedOrderForDetails(orderId);
+    };
+    window.addEventListener("pcm:open-order", handler);
+    return () => window.removeEventListener("pcm:open-order", handler);
+  }, []);
 
   // Handle Quick Status Actions
   const handleTransitionStatus = async (
@@ -189,6 +222,11 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
                 ? "Trung Tâm Điều Hành & Quản Lý Đơn Hàng"
                 : `Hàng Đợi Xử Lý: ${ROLE_LABELS[role]}`}
             </h2>
+            {role && role !== "admin" && role in ROLE_META && (
+              <span className={roleChip(role)}>
+                {ROLE_META[role].short.toUpperCase()}
+              </span>
+            )}
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-accent/15 text-accent">
               {filteredOrders.length} đơn hàng
             </span>
@@ -238,6 +276,7 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = adminTab === tab.id;
+            const tabRole = tab.id in ROLE_META ? roleChip(tab.id as keyof typeof ROLE_META) : null;
             return (
               <button
                 key={tab.id}
@@ -245,8 +284,8 @@ export function OrdersHub({ initialQueue }: OrdersHubProps) {
                 className={cn(
                   "px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer",
                   isActive
-                    ? "bg-accent/15 text-accent font-semibold"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    ? "bg-accent/15 text-accent font-semibold ring-2 ring-current"
+                    : tabRole || "text-muted-foreground hover:text-foreground hover:bg-secondary"
                 )}
               >
                 <Icon className="w-3.5 h-3.5" />

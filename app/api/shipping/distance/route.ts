@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth';
+import { statusFromError } from '@/lib/permissions';
 
 // Default store address
 export const STORE_ADDRESS = '123 Đường Cách Mạng Tháng 8, Phường 5, Quận 3, TP. Hồ Chí Minh';
@@ -31,6 +33,7 @@ function estimateDistanceFallback(destination: string): number {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireUser();
     const body = await request.json();
     const destination = body.destination?.trim();
     const origin = body.origin?.trim() || STORE_ADDRESS;
@@ -82,9 +85,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('Error calculating distance:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi tính khoảng cách' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Lỗi tính khoảng cách' }, { status: statusFromError(error) });
   }
 }

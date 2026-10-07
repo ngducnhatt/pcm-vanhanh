@@ -10,6 +10,8 @@
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start",
+    "db:create": "powershell -ExecutionPolicy Bypass -File scripts/db-create.ps1",
+    "products:scrape": "tsx scripts/scrape-pcmarket.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:admin": "tsx scripts/create-admin.ts",
     "test:flow": "tsx scripts/test-order-flow.ts",

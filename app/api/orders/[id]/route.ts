@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireUser, writeAuditLog } from '@/lib/auth';
+import { notifyOrderEvent } from '@/lib/notifications';
 import { can, statusFromError } from '@/lib/permissions';
 import {
   canCancelOrder,
@@ -91,12 +92,13 @@ export async function GET(
       changed_by_user: {
         id: row.changed_by_user_id,
         name: row.user_name || 'Hệ thống',
+        phone: null,
         email: '',
-        role: row.user_role || 'admin',
+        roles: ['admin'],
         is_active: 1,
         created_at: '',
       },
-    }));
+    })) as any;
 
     // 4. Fetch payments
     const paymentRows = (
@@ -122,12 +124,13 @@ export async function GET(
       collected_by_user: {
         id: row.collected_by_user_id,
         name: row.collected_user_name || 'Nhân viên',
+        phone: null,
         email: '',
-        role: 'kinh_doanh',
+        roles: ['kinh_doanh'],
         is_active: 1,
         created_at: '',
       },
-    }));
+    })) as any;
 
     // 5. Fetch shipment
     const shipmentRow = await db
@@ -156,19 +159,20 @@ export async function GET(
             name: shipmentRow.shipper_name || 'Shipper',
             phone: shipmentRow.shipper_phone,
             email: '',
-            role: 'shipper',
+            roles: ['shipper'],
             is_active: 1,
             created_at: '',
           },
           assigned_by_user: {
             id: shipmentRow.assigned_by_user_id,
             name: shipmentRow.assigned_user_name || 'Quản lý ship',
+            phone: null,
             email: '',
-            role: 'quan_ly_ship',
+            roles: ['quan_ly_ship'],
             is_active: 1,
             created_at: '',
           },
-        }
+        } as any
       : null;
 
     let parsedTags: string[] = [];
@@ -199,11 +203,12 @@ export async function GET(
       sales_user: {
         id: orderRow.sales_user_id,
         name: orderRow.sales_user_name || 'Kinh doanh',
+        phone: null,
         email: orderRow.sales_user_email || '',
-        role: 'kinh_doanh',
+        roles: ['kinh_doanh'],
         is_active: 1,
         created_at: '',
-      },
+      } as any,
       items,
       history,
       payments,
@@ -214,7 +219,7 @@ export async function GET(
   } catch (error: any) {
     console.error('Error fetching order details:', error);
     return NextResponse.json(
-      { error: error.message || 'Lỗi tải chi tiết đơn hàng' },
+      { error: 'Lỗi tải chi tiết đơn hàng' },
       { status: statusFromError(error) }
     );
   }
@@ -243,6 +248,15 @@ export async function PUT(
 
     if (!currentOrder) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
+    }
+
+    // Ownership: kinh_doanh chỉ sửa đơn của chính mình (admin bypass)
+    if (
+      currentUser.roles.includes('kinh_doanh') &&
+      !currentUser.roles.includes('admin') &&
+      currentOrder.sales_user_id !== currentUser.id
+    ) {
+      return NextResponse.json({ error: 'Chỉ được sửa đơn do chính mình tạo' }, { status: 403 });
     }
 
     if (!canEditOrder(currentOrder.status)) {
@@ -462,9 +476,32 @@ export async function PUT(
         id,
         newStatus,
         currentUser.id,
-        `${actorLabel} cập nhật đơn hàng. Lý do: ${reason}.${details}${didRollback ? ' Quy trình đã rollback về Chờ xuất kho.' : ''}`
+        `${actorLabel} cập nhật đơn hàng. Lý do: ${String(reason).slice(0, 500)}.${details}${didRollback ? ' Quy trình đã rollback về Chờ xuất kho.' : ''}`
       )
       .run();
+
+    await writeAuditLog({
+      action: 'order_updated',
+      actor: currentUser,
+      targetUserId: null,
+      targetName: currentOrder.invoice_no,
+      detail: { order_id: id, rollback: didRollback, changes: changes.slice(0, 10) },
+      ip: request.headers.get('x-forwarded-for'),
+    });
+
+    // Tag người tạo đơn khi bị sửa (trừ người tự sửa); rollback thì tag thêm kho
+    await notifyOrderEvent({
+      actor: currentUser,
+      orderId: id,
+      invoiceNo: currentOrder.invoice_no,
+      salesUserId: currentOrder.sales_user_id,
+      kind: didRollback ? 'order_rollback' : 'order_edited',
+      title: didRollback
+        ? `Đơn ${currentOrder.invoice_no} bị sửa và trả về kho`
+        : `Đơn ${currentOrder.invoice_no} vừa được sửa`,
+      message: `${actorLabel}: ${String(reason).slice(0, 200)}`,
+      newStatus: didRollback ? 'kho_pending' : null,
+    });
 
     return NextResponse.json({
       success: true,
@@ -478,7 +515,7 @@ export async function PUT(
   } catch (error: any) {
     console.error('Error updating order:', error);
     return NextResponse.json(
-      { error: error.message || 'Lỗi cập nhật đơn hàng' },
+      { error: 'Lỗi cập nhật đơn hàng' },
       { status: statusFromError(error) }
     );
   }
@@ -501,12 +538,21 @@ export async function DELETE(
 
     const db = getDb();
     const currentOrder = await db
-      .prepare('SELECT id, invoice_no, status FROM orders WHERE id = ?')
+      .prepare('SELECT id, invoice_no, status, sales_user_id FROM orders WHERE id = ?')
       .bind(id)
       .first<any>();
 
     if (!currentOrder) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
+    }
+
+    // Ownership: kinh_doanh chỉ hủy đơn của chính mình (admin bypass)
+    if (
+      currentUser.roles.includes('kinh_doanh') &&
+      !currentUser.roles.includes('admin') &&
+      currentOrder.sales_user_id !== currentUser.id
+    ) {
+      return NextResponse.json({ error: 'Chỉ được hủy đơn do chính mình tạo' }, { status: 403 });
     }
 
     if (!canCancelOrder(currentOrder.status)) {
@@ -517,13 +563,14 @@ export async function DELETE(
     }
 
     const { searchParams } = new URL(request.url);
-    const reason = searchParams.get('reason') || 'Kinh doanh hủy đơn theo yêu cầu';
+    const reason = (searchParams.get('reason') || 'Kinh doanh hủy đơn theo yêu cầu').slice(0, 500);
 
-    // Update status to cancelled
+    // Hủy đơn: chuyển cancelled + dọn shipment chờ (tránh kẹt shipper) trong 1 luồng
     await db
-      .prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .bind('cancelled', id)
+      .prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status != ?')
+      .bind('cancelled', id, 'completed')
       .run();
+    await db.prepare('DELETE FROM shipments WHERE order_id = ?').bind(id).run();
 
     // Insert history
     const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -535,6 +582,26 @@ export async function DELETE(
       .bind(historyId, id, 'cancelled', currentUser.id, `Hủy đơn: ${reason}`)
       .run();
 
+    await writeAuditLog({
+      action: 'order_cancelled',
+      actor: currentUser,
+      targetUserId: null,
+      targetName: currentOrder.invoice_no,
+      detail: { order_id: id, reason },
+      ip: request.headers.get('x-forwarded-for'),
+    });
+
+    // Tag người tạo đơn khi đơn bị hủy (trừ người tự hủy)
+    await notifyOrderEvent({
+      actor: currentUser,
+      orderId: id,
+      invoiceNo: currentOrder.invoice_no,
+      salesUserId: currentOrder.sales_user_id,
+      kind: 'order_cancelled',
+      title: `Đơn ${currentOrder.invoice_no} đã bị hủy`,
+      message: `Lý do: ${reason}`,
+    });
+
     return NextResponse.json({
       success: true,
       message: `Đơn hàng ${currentOrder.invoice_no} đã được hủy thành công!`,
@@ -542,7 +609,7 @@ export async function DELETE(
   } catch (error: any) {
     console.error('Error cancelling order:', error);
     return NextResponse.json(
-      { error: error.message || 'Lỗi hủy đơn hàng' },
+      { error: 'Lỗi hủy đơn hàng' },
       { status: statusFromError(error) }
     );
   }

@@ -23,8 +23,8 @@ import type { Role } from './types';
  *      xanh = đã hoàn thành (xong, thành công)
  *    Mọi thứ còn lại dùng `neutral` (đen/trắng) hoặc `accent` (đảo màu
  *    trắng-đen cho nút chính và trạng thái đang chọn).
- * 3. MÀU = TRẠNG THÁI, không phải DANH TÍNH. Vai trò nhân viên không dùng
- *    màu riêng để bảng không bị "đốm màu".
+ * 3. MÀU TRẠNG THÁI cho đơn hàng/tiền (đỏ/vàng/xanh); MÀU VAI TRÒ
+ *    (ROLE_CHIP_STYLE) để phân biệt nhân sự theo vai trò trong mọi màn hình.
  */
 
 export type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'accent';
@@ -98,6 +98,40 @@ export const ROLE_META: Record<Role, RoleMeta> = {
 export function roleLabel(role: Role, short = false): string {
   const meta = ROLE_META[role];
   return short ? meta.short : meta.label;
+}
+
+/** Màu nền chip riêng từng vai trò — dùng chung toàn app */
+export const ROLE_CHIP_STYLE: Record<Role, string> = {
+  admin: 'bg-red-500/15 text-red-700 dark:text-red-400',
+  kinh_doanh: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
+  kho: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  ky_thuat: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
+  quan_ly_ky_thuat: 'bg-slate-500/15 text-slate-600 dark:text-slate-300',
+  bao_hanh: 'bg-teal-500/15 text-teal-700 dark:text-teal-300',
+  quan_ly_ship: 'bg-orange-500/15 text-orange-700 dark:text-orange-400',
+  shipper: 'bg-green-500/15 text-green-700 dark:text-green-400',
+};
+
+/** Màu chữ icon riêng từng vai trò (dùng cho sidebar/nav) */
+export const ROLE_TEXT_STYLE: Record<Role, string> = {
+  admin: 'text-red-600 dark:text-red-400',
+  kinh_doanh: 'text-blue-600 dark:text-blue-400',
+  kho: 'text-amber-600 dark:text-amber-400',
+  ky_thuat: 'text-violet-600 dark:text-violet-400',
+  quan_ly_ky_thuat: 'text-slate-500 dark:text-slate-300',
+  bao_hanh: 'text-teal-600 dark:text-teal-300',
+  quan_ly_ship: 'text-orange-600 dark:text-orange-400',
+  shipper: 'text-green-600 dark:text-green-400',
+};
+
+/** Chip vai trò chuẩn toàn app: màu theo vai trò */
+export function roleChip(role: Role): string {
+  return `${CHIP_BASE} ${ROLE_CHIP_STYLE[role]}`;
+}
+
+/** Kiểm tra chuỗi có phải Role hợp lệ (dùng cho queue string) */
+export function asRole(value: string | undefined | null): Role | null {
+  return value && value in ROLE_CHIP_STYLE ? (value as Role) : null;
 }
 
 // ---------------------------------------------------------------------------

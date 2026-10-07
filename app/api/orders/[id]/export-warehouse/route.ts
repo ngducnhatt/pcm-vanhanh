@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { requirePermission } from '@/lib/auth';
+import { notifyOrderEvent } from '@/lib/notifications';
 import { statusFromError } from '@/lib/permissions';
 import { getNextStatusAfterKhoDone } from '@/lib/state-machine';
 
@@ -41,7 +42,7 @@ export async function POST(
 
     const db = getDb();
     const orderRow = await db
-      .prepare('SELECT id, invoice_no, status, tags FROM orders WHERE id = ?')
+      .prepare('SELECT id, invoice_no, status, tags, sales_user_id FROM orders WHERE id = ?')
       .bind(id)
       .first<any>();
 
@@ -154,6 +155,18 @@ export async function POST(
       )
       .bind(histId2, id, nextStatus, currentUser.id, transitionReason)
       .run();
+
+    // Tag người tạo đơn + nhóm tiếp theo (kỹ thuật/bảo hành/giao hàng)
+    await notifyOrderEvent({
+      actor: currentUser,
+      orderId: id,
+      invoiceNo: orderRow.invoice_no,
+      salesUserId: orderRow.sales_user_id,
+      kind: 'order_exported',
+      title: `Kho đã xuất ${orderRow.invoice_no}`,
+      message: transitionReason,
+      newStatus: nextStatus,
+    });
 
     return NextResponse.json({
       success: true,

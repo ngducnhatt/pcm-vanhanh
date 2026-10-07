@@ -73,7 +73,7 @@ function getMysqlPool(): Pool {
       multipleStatements: true,
       charset: 'utf8mb4',
     });
-    mysqlPool.on('error' as any, (error: Error) => {
+    (mysqlPool as any).on('error', (error: Error) => {
       console.error('Unexpected MySQL pool error:', error);
     });
   }
@@ -135,6 +135,34 @@ async function initializeMysql(pool: Pool): Promise<void> {
 export function getDb(): PostgresDatabase {
   const pool = getMysqlPool();
   return createMysqlAdapter(pool, () => initializeMysql(pool));
+}
+
+/** Chạy callback trong 1 MySQL transaction (atomic cho multi-write). */
+export async function withTransaction<T>(
+  fn: (query: (sql: string, params?: unknown[]) => Promise<any>) => Promise<T>
+): Promise<T> {
+  const pool = getMysqlPool();
+  await initializeMysql(pool);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const query = async (sql: string, params: unknown[] = []) => {
+      const [rows] = await conn.query(sql, params as any);
+      return rows;
+    };
+    const result = await fn(query);
+    await conn.commit();
+    return result;
+  } catch (error) {
+    try {
+      await conn.rollback();
+    } catch {
+      /* ignore */
+    }
+    throw error;
+  } finally {
+    conn.release();
+  }
 }
 
 export async function closeDb(): Promise<void> {

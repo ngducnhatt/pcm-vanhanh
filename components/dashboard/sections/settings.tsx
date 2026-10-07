@@ -18,12 +18,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChangePasswordDialog } from "@/components/change-password-dialog";
 import { useAuth } from "@/components/auth-context";
-import { ROLE_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   chip,
   FIELD_BASE,
   LABEL_BASE,
+  ROLE_META,
+  roleChip,
   SECTION_SUBTITLE,
   SECTION_TITLE,
   SURFACE_CARD,
@@ -130,14 +131,15 @@ const notificationSettings = [
 ];
 
 export function SettingsSection() {
-  const { currentUser, role } = useAuth();
+  const { currentUser, roles } = useAuth();
+  const role = roles[0] ?? currentUser?.roles?.[0];
   const [activeTab, setActiveTab] = useState("profile");
   const [notifications, setNotifications] = useState(notificationSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const [namePart, ...nameRest] = (currentUser?.name || "").split(" ");
-  const roleLabel = ROLE_LABELS[role];
+  const roleLabel = role && role in ROLE_META ? ROLE_META[role].label : "—";
   const isAdmin = role === "admin";
 
   // Nhân viên chỉ có 2 tab cá nhân; tab Thông báo/Tích hợp là cấu hình hệ thống
@@ -265,12 +267,19 @@ export function SettingsSection() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="role" className={LABEL_BASE}>Vai trò</Label>
-                  <Input
-                    id="role"
-                    defaultValue={roleLabel}
-                    readOnly
-                    className={cn(FIELD_BASE, "bg-secondary")}
-                  />
+                  <div>
+                    {role && role in ROLE_META ? (
+                      <span className={roleChip(role)}>
+                        {(() => {
+                          const Icon = ROLE_META[role].icon;
+                          return <Icon className="h-3 w-3" />;
+                        })()}
+                        {roleLabel}
+                      </span>
+                    ) : (
+                      <span className={chip("neutral")}>—</span>
+                    )}
+                  </div>
                   <p className={LABEL_BASE}>
                     Tên đăng nhập:{" "}
                     <span className="font-mono">{currentUser?.username || "—"}</span>. Thông tin hồ sơ và

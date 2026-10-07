@@ -91,11 +91,11 @@ GOOGLE_MAPS_API_KEY=
 ADMIN_NAME=Administrator
 ADMIN_EMAIL=admin@localhost
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
+ADMIN_PASSWORD=Admin@2026PCM
 ADMIN_PHONE=0901234567
 "@
 $envContent | Out-File -FilePath ".env" -Encoding UTF8
-Write-Host "  .env da cap nhat" -ForegroundColor Green
+Write-Host "  .env da cap nhat (doi ADMIN_PASSWORD ngay sau khi dang nhap lan dau)" -ForegroundColor Green
 
 # Chay migrations
 Write-Host "[6/7] Chay database migrations..." -ForegroundColor Yellow
@@ -132,7 +132,7 @@ Write-Host "  Setup hoan tat!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Truy cap: http://localhost:3000" -ForegroundColor Cyan
-Write-Host "  Admin: admin / admin123" -ForegroundColor Cyan
+Write-Host "  Admin: admin (mat khau trong .env - doi ngay sau lan dang nhap dau)" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Nhan Enter de chay ung dung..." -ForegroundColor Yellow
 Read-Host

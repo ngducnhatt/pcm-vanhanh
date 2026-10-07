@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { requirePermission } from '@/lib/auth';
+import { requirePermission, writeAuditLog } from '@/lib/auth';
+import { notifyOrderEvent } from '@/lib/notifications';
 import { statusFromError } from '@/lib/permissions';
 
 export async function POST(
@@ -21,25 +22,40 @@ export async function POST(
     const body = await request.json();
     const { shipper_id, address, distance_km, km_source = 'manual', note } = body;
 
-    if (!shipper_id || !address || distance_km === undefined) {
+    if (!shipper_id || !address?.trim() || distance_km === undefined) {
       return NextResponse.json(
         { error: 'Vui lòng chọn shipper, nhập địa chỉ và số km vận chuyển' },
         { status: 400 }
       );
     }
+    const km = Number(distance_km);
+    if (!Number.isFinite(km) || km < 0 || km > 5000) {
+      return NextResponse.json({ error: 'Số km phải từ 0 đến 5000' }, { status: 400 });
+    }
+    if (!['gg_map', 'manual'].includes(km_source)) {
+      return NextResponse.json({ error: 'Nguồn km không hợp lệ' }, { status: 400 });
+    }
 
     const db = getDb();
     const [orderRow, shipperRow] = await Promise.all([
-      db.prepare('SELECT id, invoice_no, status FROM orders WHERE id = ?').bind(id).first<any>(),
-      db.prepare('SELECT id, name, role FROM users WHERE id = ?').bind(shipper_id).first<any>(),
+      db.prepare('SELECT id, invoice_no, status, sales_user_id FROM orders WHERE id = ?').bind(id).first<any>(),
+      db.prepare('SELECT u.id, u.name FROM users u INNER JOIN user_roles ur ON u.id = ur.user_id AND ur.role = ? WHERE u.id = ? AND u.is_active = 1').bind('shipper', shipper_id).first<any>(),
     ]);
 
     if (!orderRow) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
     }
 
+    // Chỉ gán ship khi đang chờ gán (chống ghi đè completed/cancelled/dangiao)
+    if (orderRow.status !== 'ship_pending') {
+      return NextResponse.json(
+        { error: `Chỉ gán shipper khi đơn ở trạng thái ship_pending (hiện tại: ${orderRow.status})` },
+        { status: 400 }
+      );
+    }
+
     if (!shipperRow) {
-      return NextResponse.json({ error: 'Không tìm thấy thông tin shipper' }, { status: 404 });
+      return NextResponse.json({ error: 'Shipper không tồn tại hoặc không có quyền shipper' }, { status: 404 });
     }
 
     // Check existing shipment
@@ -86,11 +102,17 @@ export async function POST(
         .run();
     }
 
-    // Update order status to ship_assigned
-    await db
-      .prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .bind('ship_assigned', id)
+    // Update order status to ship_assigned (atomic theo trạng thái hiện tại)
+    const shipUpdate: any = await db
+      .prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?')
+      .bind('ship_assigned', id, 'ship_pending')
       .run();
+    if ((shipUpdate?.meta?.changes ?? 1) === 0) {
+      return NextResponse.json(
+        { error: 'Trạng thái đơn đã thay đổi, vui lòng tải lại' },
+        { status: 409 }
+      );
+    }
 
     // Log history
     const histId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -105,9 +127,30 @@ export async function POST(
         id,
         'ship_assigned',
         currentUser.id,
-        `Quản lý ship phân công shipper ${shipperRow.name} (${distance_km} km - ${sourceLabel}). ${note ? `Ghi chú: ${note}` : ''}`
+        `Quản lý ship phân công shipper ${shipperRow.name} (${km} km - ${sourceLabel}). ${note ? `Ghi chú: ${String(note).slice(0, 500)}` : ''}`
       )
       .run();
+
+    await writeAuditLog({
+      action: 'order_shipment_assigned',
+      actor: currentUser,
+      targetUserId: null,
+      targetName: orderRow.invoice_no,
+      detail: { order_id: id, shipper_id, distance_km: km },
+      ip: request.headers.get('x-forwarded-for'),
+    });
+
+    // Tag shipper được gán + người tạo đơn
+    await notifyOrderEvent({
+      actor: currentUser,
+      orderId: id,
+      invoiceNo: orderRow.invoice_no,
+      salesUserId: orderRow.sales_user_id,
+      shipperId: shipper_id,
+      kind: 'order_shipment',
+      title: `Bạn được gán giao ${orderRow.invoice_no}`,
+      message: `${shipperRow.name} giao ${km} km — ${String(address).slice(0, 120)}`,
+    });
 
     return NextResponse.json({
       success: true,

@@ -17,6 +17,7 @@ import { OrdersHub } from "@/components/dashboard/sections/orders-hub";
 import { SearchResults } from "@/components/dashboard/search-results";
 import { NotificationsPage } from "@/components/dashboard/notifications-page";
 import { useAuth } from "@/components/auth-context";
+import { defaultDateRange, type DatePreset, type DateRange } from "@/components/dashboard/date-range-picker";
 import {
   canAccessSection,
   defaultSectionFor,
@@ -45,6 +46,8 @@ export default function Dashboard() {
   const [activeView, setActiveView] = useState<View>("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [datePreset, setDatePreset] = useState<DatePreset>("7days");
+  const [dateRange, setDateRange] = useState<DateRange>(() => defaultDateRange());
 
   // Mục thuộc vai trò khác (hoặc đổi tài khoản/role giữa chừng)
   // -> đưa người dùng về trang mở đầu của vai trò đó.
@@ -60,11 +63,11 @@ export default function Dashboard() {
   const renderSection = () => {
     switch (activeSection) {
       case "overview":
-        return <OverviewSection />;
+        return <OverviewSection dateRange={dateRange} />;
       case "pipeline":
         return <PipelineSection />;
       case "deals":
-        return <OrdersHub initialQueue="all" />;
+        return <OrdersHub initialQueue="all" dateRange={dateRange} />;
       case "customers":
         return <CustomersSection />;
       case "team":
@@ -76,21 +79,21 @@ export default function Dashboard() {
       case "settings":
         return <SettingsSection />;
       case "sale-orders":
-        return <OrdersHub initialQueue="kinh_doanh" />;
+        return <OrdersHub initialQueue="kinh_doanh" dateRange={dateRange} />;
       case "warehouse-orders":
-        return <OrdersHub initialQueue="kho" />;
+        return <OrdersHub initialQueue="kho" dateRange={dateRange} />;
       case "technical-orders":
-        return <OrdersHub initialQueue="ky_thuat" />;
+        return <OrdersHub initialQueue="ky_thuat" dateRange={dateRange} />;
       case "warranty-orders":
-        return <OrdersHub initialQueue="bao_hanh" />;
+        return <OrdersHub initialQueue="bao_hanh" dateRange={dateRange} />;
       case "shipping-orders":
-        return <OrdersHub initialQueue="quan_ly_ship" />;
+        return <OrdersHub initialQueue="quan_ly_ship" dateRange={dateRange} />;
       case "shipper-orders":
-        return <OrdersHub initialQueue="shipper" />;
+        return <OrdersHub initialQueue="shipper" dateRange={dateRange} />;
       case "accounting-orders":
-        return <OrdersHub initialQueue="all" />;
+        return <OrdersHub initialQueue="all" dateRange={dateRange} />;
       default:
-        return <OverviewSection />;
+        return <OverviewSection dateRange={dateRange} />;
     }
   };
 
@@ -99,6 +102,18 @@ export default function Dashboard() {
     setActiveSection(section);
     setActiveView(section);
   };
+
+  // Bấm thông báo ở bất kỳ đâu -> nhảy về Trung tâm đơn hàng (ai cũng xem được)
+  useEffect(() => {
+    const handler = () => {
+      if (canAccessSection(roles, "deals")) {
+        setActiveSection("deals");
+        setActiveView("deals");
+      }
+    };
+    window.addEventListener("pcm:open-order", handler);
+    return () => window.removeEventListener("pcm:open-order", handler);
+  }, [roles]);
 
   // Session is being restored from the httpOnly cookie
   if (isLoading) {
@@ -141,6 +156,9 @@ export default function Dashboard() {
           onSearch={(query) => { setSearchQuery(query); setActiveView("search"); }}
           onNotifications={() => setActiveView("notifications")}
           onOpenAccounts={() => handleSectionChange("team")}
+          datePreset={datePreset}
+          dateRange={dateRange}
+          onDateRangeChange={(preset, range) => { setDatePreset(preset); setDateRange(range); }}
         />
         <main className="flex-1 p-6 overflow-auto">
           <div

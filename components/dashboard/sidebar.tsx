@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { Section } from "@/app/page";
 import { useAuth } from "@/components/auth-context";
 import { operationNavFor, primaryNavFor } from "@/lib/nav";
+import { asRole, ROLE_TEXT_STYLE } from "@/lib/ui";
 import { ChevronLeft, ChevronRight, Cpu } from "lucide-react";
 
 interface SidebarProps {
@@ -97,15 +98,21 @@ export function Sidebar({
               {operationItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeSection === item.id;
-
+                const queueRole = asRole(item.queue);
                 return (
                   <button
                     key={item.id}
-                    onClick={() => onSectionChange(item.id)}
+                    onClick={() => onSectionChange(item.id as Section)}
                     className={cn(NAV_ITEM_BASE, isActive ? NAV_ITEM_ACTIVE : NAV_ITEM_IDLE)}
                   >
                     <span className={cn(NAV_RAIL, isActive ? "opacity-100" : "opacity-0")} />
-                    <Icon className={cn(NAV_ICON, isActive ? "text-accent" : "group-hover:scale-110")} />
+                    <Icon
+                      className={cn(
+                        NAV_ICON,
+                        isActive ? "text-accent" : queueRole ? ROLE_TEXT_STYLE[queueRole] : "",
+                        !isActive && "group-hover:scale-110"
+                      )}
+                    />
                     <span className={navLabel(collapsed)}>{item.label}</span>
                   </button>
                 );

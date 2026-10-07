@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { requireUser } from '@/lib/auth';
+import { requireUser, writeAuditLog } from '@/lib/auth';
+import { notifyOrderEvent } from '@/lib/notifications';
 import { statusFromError } from '@/lib/permissions';
 import {
   canPerformAction,
@@ -18,11 +19,22 @@ export async function POST(
     const { id } = await params;
     const currentUser = await requireUser();
     const body = await request.json();
-    const { action, note, targetStatus } = body;
+    const { action, note } = body;
+
+    const ALLOWED_ACTIONS = [
+      'receive_kho',
+      'complete_kithuat',
+      'complete_baohanh',
+      'start_delivery',
+      'complete_delivery',
+    ] as const;
+    if (!ALLOWED_ACTIONS.includes(action)) {
+      return NextResponse.json({ error: 'Action không hợp lệ' }, { status: 400 });
+    }
 
     const db = getDb();
     const orderRow = await db
-      .prepare('SELECT id, invoice_no, status, payment_status, tags FROM orders WHERE id = ?')
+      .prepare('SELECT id, invoice_no, status, payment_status, tags, sales_user_id FROM orders WHERE id = ?')
       .bind(id)
       .first<any>();
 
@@ -38,8 +50,8 @@ export async function POST(
     }
 
     const currentStatus: OrderStatus = orderRow.status;
-    let nextStatus: OrderStatus = targetStatus || currentStatus;
-    let defaultNote = note;
+    let nextStatus: OrderStatus = currentStatus;
+    let defaultNote = (typeof note === 'string' ? note : '').slice(0, 1000);
 
     // Handle standard role actions
     if (action === 'receive_kho') {
@@ -127,11 +139,19 @@ export async function POST(
       isAutoCompleted = true;
     }
 
-    // Update order status
-    await db
-      .prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .bind(nextStatus, id)
+    // Update order status (atomic: chống double-submit đồng thời)
+    const updateResult: any = await db
+      .prepare(
+        'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?'
+      )
+      .bind(nextStatus, id, currentStatus)
       .run();
+    if ((updateResult?.meta?.changes ?? 1) === 0) {
+      return NextResponse.json(
+        { error: 'Trạng thái đơn đã thay đổi, vui lòng tải lại' },
+        { status: 409 }
+      );
+    }
 
     // Log the resulting status history
     const histId = `hist_${Date.now() + 2}_${Math.random().toString(36).substring(2, 7)}`;
@@ -146,6 +166,34 @@ export async function POST(
       )
       .bind(histId, id, nextStatus, currentUser.id, finalNote)
       .run();
+
+    await writeAuditLog({
+      action: 'order_status_changed',
+      actor: currentUser,
+      targetUserId: null,
+      targetName: orderRow.invoice_no,
+      detail: { order_id: id, action, from: currentStatus, to: nextStatus },
+      ip: request.headers.get('x-forwarded-for'),
+    });
+
+    // Tag người tạo đơn + nhóm phụ trách trạng thái mới (trừ người vừa làm)
+    const ACTION_TITLES: Record<string, string> = {
+      receive_kho: `Kho đã tiếp nhận ${orderRow.invoice_no}`,
+      complete_kithuat: `Kỹ thuật đã xong ${orderRow.invoice_no}`,
+      complete_baohanh: `Bảo hành đã xong ${orderRow.invoice_no}`,
+      start_delivery: `Đang giao ${orderRow.invoice_no}`,
+      complete_delivery: `Đã giao xong ${orderRow.invoice_no}`,
+    };
+    await notifyOrderEvent({
+      actor: currentUser,
+      orderId: id,
+      invoiceNo: orderRow.invoice_no,
+      salesUserId: orderRow.sales_user_id,
+      kind: isAutoCompleted ? 'order_completed' : 'order_status',
+      title: isAutoCompleted ? `Đơn ${orderRow.invoice_no} đã hoàn tất` : ACTION_TITLES[action] || `Đơn ${orderRow.invoice_no} chuyển sang ${nextStatus}`,
+      message: finalNote.slice(0, 500),
+      newStatus: nextStatus,
+    });
 
     return NextResponse.json({
       success: true,

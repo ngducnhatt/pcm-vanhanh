@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/components/auth-context";
 import { ChangePasswordDialog } from "@/components/change-password-dialog";
-import { ROLE_META, chip } from "@/lib/ui";
+import { ROLE_META, roleChip } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 
 export function UserMenu({ onOpenAccounts }: { onOpenAccounts?: () => void }) {
@@ -73,7 +73,7 @@ export function UserMenu({ onOpenAccounts }: { onOpenAccounts?: () => void }) {
               </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              <span className={chip('neutral')}>
+              <span className={roleChip(primaryRole)}>
                 <RoleIcon className="h-3 w-3" />
                 {roleMeta.label}
               </span>

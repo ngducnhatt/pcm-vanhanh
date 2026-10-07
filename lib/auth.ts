@@ -71,7 +71,7 @@ export async function getUserById(id: string): Promise<AuthUser | null> {
 export async function getUserByUsername(username: string): Promise<AuthUser | null> {
   const db = getDb();
   const row = await db
-    .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE LOWER(username) = LOWER(?)`)
+    .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE username = LOWER(?)`)
     .bind(username)
     .first<any>();
   if (!row) return null;
@@ -87,7 +87,7 @@ export async function getUserCredentialsByUsername(
 ): Promise<(AuthUser & { password_hash: string | null }) | null> {
   const db = getDb();
   const row = await db
-    .prepare(`SELECT ${USER_COLUMNS}, password_hash FROM users WHERE LOWER(username) = LOWER(?)`)
+    .prepare(`SELECT ${USER_COLUMNS}, password_hash FROM users WHERE username = LOWER(?)`)
     .bind(username)
     .first<any>();
   if (!row) return null;
@@ -139,10 +139,18 @@ export type AuditAction =
   | 'user_locked'
   | 'user_unlocked'
   | 'user_deactivated'
+  | 'user_deleted'
   | 'user_reactivated'
   | 'role_changed'
   | 'password_changed'
-  | 'password_reset';
+  | 'password_reset'
+  | 'order_created'
+  | 'order_updated'
+  | 'order_cancelled'
+  | 'order_status_changed'
+  | 'order_payment_collected'
+  | 'order_shipment_assigned'
+  | 'order_exported';
 
 /**
  * Records security-relevant actions. Never throws: audit logging must not
@@ -263,16 +271,22 @@ export async function authenticate(
   const valid = await verifyPassword(password, record.password_hash);
 
   if (!valid) {
-    const failedCount = (record.failed_login_count || 0) + 1;
-    const shouldLock = failedCount >= MAX_FAILED_LOGINS;
-    const lockedUntil = shouldLock
-      ? new Date(now + LOCK_MINUTES * 60 * 1000).toISOString()
-      : null;
-
+    // Atomic: tăng counter ngay trong SQL để chống burst song song bypass lockout
+    const lockUntil = new Date(now + LOCK_MINUTES * 60 * 1000).toISOString();
     await db
-      .prepare('UPDATE users SET failed_login_count = ?, locked_until = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .bind(shouldLock ? 0 : failedCount, lockedUntil, record.id)
+      .prepare(
+        `UPDATE users SET
+           failed_login_count = CASE WHEN failed_login_count >= ? THEN 0 ELSE failed_login_count + 1 END,
+           locked_until = CASE WHEN failed_login_count + 1 >= ? THEN ? ELSE locked_until END,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      )
+      .bind(MAX_FAILED_LOGINS - 1, MAX_FAILED_LOGINS, lockUntil, record.id)
       .run();
+
+    const failedCount = Math.min((record.failed_login_count || 0) + 1, MAX_FAILED_LOGINS);
+    const shouldLock = failedCount >= MAX_FAILED_LOGINS;
+    const lockedUntil = shouldLock ? lockUntil : null;
 
     await writeAuditLog({
       action: 'login_failed',
@@ -481,14 +495,15 @@ export interface PasswordPolicyResult {
 }
 
 /**
- * Chỉ kiểm tra mật khẩu khác rỗng và nằm trong giới hạn kỹ thuật.
- * Không áp đặt yêu cầu về độ dài hay chữ hoa / chữ thường / chữ số.
+ * Mật khẩu tối thiểu 8 ký tự, tối đa 128 (đủ cho nhân viên, chặn 123/admin).
  */
 export function checkPasswordPolicy(password: string): PasswordPolicyResult {
   const errors: string[] = [];
 
   if (!password || password.trim().length === 0) {
     errors.push('Mật khẩu không được để trống');
+  } else if (password.length < 8) {
+    errors.push('Mật khẩu phải từ 8 ký tự trở lên');
   }
   if (password.length > 128) {
     errors.push('Mật khẩu không được vượt quá 128 ký tự');

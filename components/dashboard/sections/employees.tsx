@@ -6,7 +6,6 @@ import {
   Ban,
   Check,
   Copy,
-  KeyRound,
   Loader2,
   Lock,
   Pencil,
@@ -14,6 +13,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Trash2,
   Unlock,
   UserPlus,
   Users as UsersIcon,
@@ -43,6 +43,7 @@ import { Role } from "@/lib/types";
 import {
   chip,
   ROLE_META,
+  roleChip,
   roleLabel,
   SURFACE_CARD,
   SECTION_TITLE,
@@ -90,6 +91,7 @@ const ACTION_LABELS: Record<string, string> = {
   role_changed: 'Đổi vai trò',
   password_changed: 'Đổi mật khẩu',
   password_reset: 'Đặt lại mật khẩu',
+  user_deleted: 'Xoá tài khoản',
 };
 
 /** Tone cho từng loại thao tác trong nhật ký */
@@ -204,7 +206,7 @@ export function EmployeesSection() {
       const roles = account.roles || [];
       if (roleFilter !== "all" && !roles.includes(roleFilter)) return false;
       if (!term) return true;
-      return [account.name, account.username, account.email, account.phone, ...roles.map(roleLabel)]
+      return [account.name, account.username, account.email, account.phone, ...roles.map((r) => roleLabel(r))]
         .filter(Boolean)
         .some((field) => String(field).toLowerCase().includes(term));
     });
@@ -222,9 +224,9 @@ export function EmployeesSection() {
     setFormMode('edit');
     setEditingId(account.id);
     setForm({
-      name: account.name,
+      name: account.name || '',
       username: account.username || '',
-      email: account.email,
+      email: account.email || '',
       phone: account.phone || '',
       roles: account.roles || [],
       password: '',
@@ -240,6 +242,10 @@ export function EmployeesSection() {
     // Client-side validation: phone is required, email is optional
     if (!form.phone.trim()) {
       setFormError('Vui lòng nhập số điện thoại');
+      return;
+    }
+    if (formMode === 'edit' && form.password && form.password.length < 8) {
+      setFormError('Mật khẩu mới tối thiểu 8 ký tự (để trống nếu không đổi)');
       return;
     }
 
@@ -265,6 +271,8 @@ export function EmployeesSection() {
             email: form.email.trim() || null,
             phone: form.phone.trim(),
             roles: form.roles,
+            // Để trống = giữ nguyên mật khẩu cũ
+            ...(form.password ? { password: form.password } : {}),
           };
 
       const res = await fetch(url, {
@@ -314,26 +322,23 @@ export function EmployeesSection() {
     }
   };
 
-  const resetPassword = async (account: Account) => {
+  const deleteAccount = async (account: Account) => {
     const confirmed = window.confirm(
-      `Đặt lại mật khẩu cho "${account.name}"?\n\nMọi phiên đăng nhập hiện tại của tài khoản này sẽ bị đăng xuất.`
+      `Xoá hẳn tài khoản "${account.name}"?\n\nHành động này không thể hoàn tác. Tài khoản còn đơn hàng/lịch sử/thu tiền/giao hàng sẽ bị từ chối.`
     );
     if (!confirmed) return;
 
     setBusyId(account.id);
     try {
-      const res = await fetch(`/api/admin/users/${account.id}/reset-password`, { method: "POST" });
+      const res = await fetch(`/api/admin/users/${account.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        toast.error(data.error || "Không đặt lại được mật khẩu");
+        toast.error(data.error || "Không xoá được tài khoản");
         return;
       }
 
-      if (data.temporaryPassword) {
-        setTempPassword({ user: account.name, password: data.temporaryPassword });
-      }
-      toast.success(data.message || "Đã đặt lại mật khẩu");
+      toast.success(`Đã xoá tài khoản "${account.name}"`);
       await loadAll();
     } finally {
       setBusyId(null);
@@ -443,8 +448,8 @@ export function EmployeesSection() {
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
                     selected
-                      ? "bg-accent/15 text-accent"
-                      : "bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      ? "bg-accent/15 text-accent ring-2 ring-current"
+                      : roleChip(role)
                   )}
                 >
                   <RoleIcon className="h-3 w-3" />
@@ -517,7 +522,7 @@ export function EmployeesSection() {
                           {(account.roles || []).map((role) => {
                             const RoleIcon = ROLE_META[role].icon;
                             return (
-                              <span key={role} className={chip('neutral')}>
+                              <span key={role} className={roleChip(role)}>
                                 <RoleIcon className="h-3 w-3" />
                                 {roleLabel(role, true)}
                               </span>
@@ -543,20 +548,11 @@ export function EmployeesSection() {
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              title="Sửa hồ sơ & vai trò"
+                              title="Sửa hồ sơ, vai trò & đặt mật khẩu mới"
                               onClick={() => openEditDialog(account)}
                               disabled={busyId === account.id}
                             >
                               <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              title="Đặt lại mật khẩu"
-                              onClick={() => resetPassword(account)}
-                              disabled={busyId === account.id}
-                            >
-                              <KeyRound className="h-3.5 w-3.5" />
                             </Button>
                             {locked && (
                               <Button
@@ -572,23 +568,11 @@ export function EmployeesSection() {
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              title={account.is_active ? "Vô hiệu hoạt" : "Kích hoạt lại"}
-                              onClick={() =>
-                                patchAccount(
-                                  account,
-                                  { is_active: !account.is_active },
-                                  account.is_active
-                                    ? 'Đã vô hiệu hoạt tài khoản'
-                                    : 'Đã kích hoạt lại tài khoản'
-                                )
-                              }
+                              title="Xoá hẳn tài khoản"
+                              onClick={() => deleteAccount(account)}
                               disabled={isSelf || busyId === account.id}
                             >
-                              {account.is_active ? (
-                                <Ban className="h-3.5 w-3.5 text-danger" />
-                              ) : (
-                                <Check className="h-3.5 w-3.5 text-success" />
-                              )}
+                              <Trash2 className="h-3.5 w-3.5 text-danger" />
                             </Button>
                           </div>
                         </td>
@@ -603,7 +587,7 @@ export function EmployeesSection() {
           {isAdmin && (
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Lock className="h-3 w-3" />
-              Bạn không thể tự vô hiệu hoạt hoặc tự hạ quyền tài khoản của chính mình. Hệ thống luôn giữ ít nhất
+              Bạn không thể tự xoá hoặc tự hạ quyền tài khoản của chính mình. Hệ thống luôn giữ ít nhất
               1 tài khoản Admin hoạt động.
             </p>
           )}
@@ -654,7 +638,7 @@ export function EmployeesSection() {
               <DialogDescription>
                 {formMode === 'create'
                   ? 'Bỏ trống mật khẩu để hệ thống tự sinh một mật khẩu ngẫu nhiên, hiển thị đúng 1 lần sau khi tạo.'
-                  : 'Thay đổi tên đăng nhập hoặc hạ vai trò sẽ buộc tài khoản đăng nhập lại.'}
+                  : 'Đổi mật khẩu mới ngay tại đây (để trống = giữ nguyên). Đổi tên đăng nhập, hạ vai trò hoặc đổi mật khẩu sẽ buộc tài khoản đăng nhập lại.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -665,7 +649,7 @@ export function EmployeesSection() {
                   <Input
                     id="account-name"
                     required
-                    value={form.name}
+                    value={form.name ?? ''}
                     onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
                     className="bg-secondary"
                     placeholder="Nguyễn Văn A"
@@ -677,7 +661,7 @@ export function EmployeesSection() {
                     id="account-username"
                     required
                     pattern="[a-z0-9._\-]+"
-                    value={form.username}
+                    value={form.username ?? ''}
                     onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
                     className="bg-secondary font-mono"
                     placeholder="nguyenvana"
@@ -688,7 +672,7 @@ export function EmployeesSection() {
                   <Input
                     id="account-email"
                     type="email"
-                    value={form.email}
+                    value={form.email ?? ''}
                     onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
                     className="bg-secondary"
                     placeholder="ten@pcshop.vn"
@@ -699,7 +683,7 @@ export function EmployeesSection() {
                   <Input
                     id="account-phone"
                     required
-                    value={form.phone}
+                    value={form.phone ?? ''}
                     onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
                     className="bg-secondary"
                     placeholder="0901 234 567"
@@ -725,8 +709,8 @@ export function EmployeesSection() {
                           className={cn(
                             "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
                             isSelected
-                              ? "bg-accent text-accent-foreground"
-                              : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
+                              ? "bg-accent text-accent-foreground ring-2 ring-offset-1 ring-accent/50"
+                              : roleChip(role)
                           )}
                         >
                           {ROLE_META[role].label}
@@ -746,6 +730,22 @@ export function EmployeesSection() {
                       className="bg-secondary"
                       placeholder="Để trống = tự sinh"
                     />
+                  </div>
+                )}
+                {formMode === 'edit' && (
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="account-new-password" className="text-xs">Mật khẩu mới (tuỳ chọn)</Label>
+                    <Input
+                      id="account-new-password"
+                      type="text"
+                      value={form.password}
+                      onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+                      className="bg-secondary"
+                      placeholder="Để trống = giữ nguyên (nhập tối thiểu 8 ký tự để đổi)"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Đổi mật khẩu tại đây sẽ đăng xuất mọi phiên của tài khoản này.
+                    </p>
                   </div>
                 )}
               </div>

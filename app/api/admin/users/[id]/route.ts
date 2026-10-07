@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getDb } from '@/lib/db';
 import {
+  checkPasswordPolicy,
   destroyAllSessionsForUser,
   getUserById,
-  isAccountLocked,
   requirePermission,
+  setUserPassword,
   writeAuditLog,
 } from '@/lib/auth';
 import { statusFromError } from '@/lib/permissions';
@@ -26,7 +27,7 @@ const updateUserSchema = z.object({
     .transform((value) => value.toLowerCase())
     .optional(),
   roles: z.array(z.enum(ROLES as [Role, ...Role[]])).min(1, 'Vui lòng chọn ít nhất 1 vai trò').optional(),
-  is_active: z.boolean().optional(),
+  password: z.string().min(8, 'Mật khẩu mới tối thiểu 8 ký tự').max(128, 'Mật khẩu tối đa 128 ký tự').optional(),
   unlock: z.boolean().optional(),
 });
 
@@ -101,15 +102,11 @@ export async function PATCH(
       }
     }
 
-    if (patch.is_active === false && target.id === actor.id) {
-      return NextResponse.json({ error: 'Bạn không thể tự vô hiệu hoạt tài khoản của mình' }, { status: 400 });
-    }
-
-    if (patch.is_active === false && target.roles.includes('admin') && (await countActiveAdmins(id)) === 0) {
-      return NextResponse.json(
-        { error: 'Phải còn ít nhất 1 tài khoản Admin đang hoạt động' },
-        { status: 400 }
-      );
+    if (patch.password) {
+      const policy = checkPasswordPolicy(patch.password);
+      if (!policy.valid) {
+        return NextResponse.json({ error: policy.errors[0] }, { status: 400 });
+      }
     }
 
     const sets: string[] = [];
@@ -135,14 +132,6 @@ export async function PATCH(
       values.push(patch.phone);
       changes.push('phone');
     }
-    if (patch.is_active !== undefined && patch.is_active !== (target.is_active === 1)) {
-      sets.push('is_active = ?');
-      values.push(patch.is_active ? 1 : 0);
-      if (!patch.is_active) {
-        sets.push('locked_until = NULL', 'failed_login_count = 0');
-      }
-      changes.push(`is_active:${target.is_active}->${patch.is_active ? 1 : 0}`);
-    }
     if (patch.unlock) {
       sets.push('locked_until = NULL', 'failed_login_count = 0');
       changes.push('unlock');
@@ -163,30 +152,37 @@ export async function PATCH(
       changes.push(`roles:${target.roles.join(',')}->${patch.roles.join(',')}`);
     }
 
-    if (changes.length === 0) {
+    if (changes.length === 0 && !patch.password) {
       return NextResponse.json({ error: 'Không có thay đổi nào được áp dụng' }, { status: 400 });
     }
 
-    // Deactivating, renaming the login or demoting an admin invalidates live sessions
+    // Đặt mật khẩu mới ngay trong form Sửa (thay nút Đặt lại mật khẩu riêng)
+    let passwordChanged = false;
+    if (patch.password) {
+      await setUserPassword(id, patch.password);
+      await destroyAllSessionsForUser(id);
+      changes.push('password');
+      passwordChanged = true;
+    }
+
+    // Renaming the login or demoting an admin invalidates live sessions
     const mustRevoke =
-      patch.is_active === false ||
+      passwordChanged ||
       (patch.username !== undefined && patch.username !== target.username) ||
       (patch.roles !== undefined && !patch.roles.includes('admin') && target.roles.includes('admin'));
 
-    if (mustRevoke) {
+    if (mustRevoke && !passwordChanged) {
       await destroyAllSessionsForUser(id);
     }
 
     const ip = request.headers.get('cf-connecting-ip') || null;
-    const action = patch.is_active === false
-      ? 'user_deactivated'
-      : patch.is_active === true
-        ? 'user_reactivated'
-        : patch.unlock
-          ? 'user_unlocked'
-          : patch.roles !== undefined
-            ? 'role_changed'
-            : 'user_updated';
+    const action = passwordChanged
+      ? 'password_reset'
+      : patch.unlock
+        ? 'user_unlocked'
+        : patch.roles !== undefined
+          ? 'role_changed'
+          : 'user_updated';
 
     await writeAuditLog({
       action,
@@ -220,7 +216,7 @@ export async function PATCH(
   }
 }
 
-/** DELETE /api/admin/users/[id] - vô hiệu hoạt tài khoản (soft delete) */
+/** DELETE /api/admin/users/[id] - xoá hẳn tài khoản (hard delete) */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -235,7 +231,7 @@ export async function DELETE(
     }
 
     if (target.id === actor.id) {
-      return NextResponse.json({ error: 'Bạn không thể tự vô hiệu hoạt tài khoản của mình' }, { status: 400 });
+      return NextResponse.json({ error: 'Bạn không thể tự xoá tài khoản của mình' }, { status: 400 });
     }
 
     if (target.roles.includes('admin') && (await countActiveAdmins(id)) === 0) {
@@ -246,26 +242,49 @@ export async function DELETE(
     }
 
     const db = getDb();
-    await db
-      .prepare('UPDATE users SET is_active = 0, locked_until = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .bind(id)
-      .run();
-    await destroyAllSessionsForUser(id);
+    // Chặn xoá khi tài khoản còn dính dữ liệu nghiệp vụ (tránh mồ côi đơn/hàng)
+    const linked = await db
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM orders WHERE sales_user_id = ?) AS orders_created,
+           (SELECT COUNT(*) FROM order_status_history WHERE changed_by_user_id = ?) AS history_rows,
+           (SELECT COUNT(*) FROM payments WHERE collected_by_user_id = ?) AS payments_rows,
+           (SELECT COUNT(*) FROM shipments WHERE shipper_id = ? OR assigned_by_user_id = ?) AS shipment_rows`
+      )
+      .bind(id, id, id, id, id)
+      .first<any>();
+    const totalLinked =
+      Number(linked?.orders_created || 0) +
+      Number(linked?.history_rows || 0) +
+      Number(linked?.payments_rows || 0) +
+      Number(linked?.shipment_rows || 0);
+    if (totalLinked > 0) {
+      return NextResponse.json(
+        {
+          error: `Không thể xoá: tài khoản còn ${totalLinked} bản ghi liên quan (đơn hàng/lịch sử/thu tiền/giao hàng). Hãy giữ lại tài khoản.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id).run();
+    await db.prepare('DELETE FROM user_roles WHERE user_id = ?').bind(id).run();
+    await db.prepare('DELETE FROM users WHERE id = ?').bind(id).run();
 
     await writeAuditLog({
-      action: 'user_deactivated',
+      action: 'user_deleted',
       actor,
       targetUserId: id,
       targetName: target.name,
-      detail: { soft_delete: true, was_locked: isAccountLocked(target) },
+      detail: { username: target.username },
       ip: request.headers.get('cf-connecting-ip') || null,
     });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error('Error deactivating user:', error);
+    console.error('Error deleting user:', error);
     return NextResponse.json(
-      { error: error.message || 'Lỗi vô hiệu hoạt tài khoản' },
+      { error: error.message || 'Lỗi xoá tài khoản' },
       { status: statusFromError(error) }
     );
   }
