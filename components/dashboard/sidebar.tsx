@@ -1,17 +1,16 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 
 import { cn } from "@/lib/utils";
-import type { Section } from "@/app/page";
 import { useAuth } from "@/components/auth-context";
 import { operationNavFor, primaryNavFor } from "@/lib/nav";
 import { asRole, ROLE_TEXT_STYLE } from "@/lib/ui";
 import { ChevronLeft, ChevronRight, Cpu } from "lucide-react";
 
 interface SidebarProps {
-  activeSection: Section;
-  onSectionChange: (section: Section) => void;
+  activeSection: string;
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
 }
@@ -32,7 +31,6 @@ const navLabel = (collapsed: boolean) =>
 
 export function Sidebar({
   activeSection,
-  onSectionChange,
   collapsed,
   onCollapsedChange,
 }: SidebarProps) {
@@ -76,15 +74,15 @@ export function Sidebar({
             const isActive = activeSection === item.id;
 
             return (
-              <button
+              <Link
                 key={item.id}
-                onClick={() => onSectionChange(item.id as Section)}
+                href={item.href}
                 className={cn(NAV_ITEM_BASE, isActive ? NAV_ITEM_ACTIVE : NAV_ITEM_IDLE)}
               >
                 <span className={cn(NAV_RAIL, isActive ? "opacity-100" : "opacity-0")} />
                 <Icon className={cn(NAV_ICON, isActive ? "text-accent" : "group-hover:scale-110")} />
                 <span className={navLabel(collapsed)}>{item.label}</span>
-              </button>
+              </Link>
             );
           })}
         </div>
@@ -100,9 +98,9 @@ export function Sidebar({
                 const isActive = activeSection === item.id;
                 const queueRole = asRole(item.queue);
                 return (
-                  <button
+                  <Link
                     key={item.id}
-                    onClick={() => onSectionChange(item.id as Section)}
+                    href={item.href}
                     className={cn(NAV_ITEM_BASE, isActive ? NAV_ITEM_ACTIVE : NAV_ITEM_IDLE)}
                   >
                     <span className={cn(NAV_RAIL, isActive ? "opacity-100" : "opacity-0")} />
@@ -114,7 +112,7 @@ export function Sidebar({
                       )}
                     />
                     <span className={navLabel(collapsed)}>{item.label}</span>
-                  </button>
+                  </Link>
                 );
               })}
             </div>

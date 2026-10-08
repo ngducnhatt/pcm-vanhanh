@@ -28,10 +28,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
 
+      // Trang chi tiết đơn hàng là link công khai: khách chưa đăng nhập được ở lại,
+      // OrderTrackingPage sẽ hiện form nhập SĐT thay vì đá sang /login.
+      const isPublicOrderPage =
+        pathname !== null &&
+        pathname.startsWith("/don-hang/") &&
+        pathname.length > "/don-hang/".length;
+
       if (res.status === 401) {
         setCurrentUser(null);
-        if (pathname !== "/login") {
-          router.replace("/login");
+        if (pathname !== "/login" && !isPublicOrderPage) {
+          router.replace(`/login?next=${encodeURIComponent(pathname || "/don-hang")}`);
         }
         return;
       }
@@ -39,8 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setCurrentUser(data.user ?? null);
-        if (pathname === "/login") {
-          router.replace("/");
+        if (pathname === "/login" || pathname === "/") {
+          router.replace("/don-hang");
         }
       }
     } catch (err) {

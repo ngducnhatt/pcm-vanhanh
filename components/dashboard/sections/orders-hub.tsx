@@ -28,10 +28,12 @@ import {
   Navigation,
   Phone,
   MapPin,
+  Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { chip, ROLE_META, roleChip } from "@/lib/ui";
+import { copyOrderLink } from "@/components/orders/order-detail-page";
 import { CreateOrderModal } from "@/components/orders/create-order-modal";
 import { EditOrderModal } from "@/components/orders/edit-order-modal";
 import { OrderDetailsModal } from "@/components/orders/order-details-modal";
@@ -382,12 +384,21 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                     >
                       {/* Mã đơn & Ngày */}
                       <td className="p-3">
-                        <button
-                          onClick={() => setSelectedOrderForDetails(order.id)}
-                          className="font-mono font-bold text-accent hover:underline text-left cursor-pointer"
-                        >
-                          {order.invoice_no}
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setSelectedOrderForDetails(order.id)}
+                            className="font-mono font-bold text-accent hover:underline text-left cursor-pointer"
+                          >
+                            {order.invoice_no}
+                          </button>
+                          <button
+                            onClick={() => copyOrderLink(order.invoice_no)}
+                            className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                            title={`Sao chép link riêng: /don-hang/${order.invoice_no}`}
+                          >
+                            <Link2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">
                           {order.invoice_date}
                         </div>

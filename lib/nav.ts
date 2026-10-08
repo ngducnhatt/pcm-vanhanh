@@ -33,15 +33,17 @@ export interface PrimaryNavItem {
   icon: LucideIcon;
   /** Vai trò được thấy mục này. Rỗng = mọi vai trò. */
   roles: Role[];
+  /** Route App Router tương ứng (MPA: mỗi mục là 1 URL riêng). */
+  href: string;
 }
 
 export const PRIMARY_NAV: PrimaryNavItem[] = [
-  { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard, roles: ['admin'] },
-  { id: 'deals', label: 'Trung tâm đơn hàng', icon: ShoppingCart, roles: [] },
-  { id: 'pipeline', label: 'Kho & Linh kiện', icon: Cpu, roles: [] },
-  { id: 'team', label: 'Nhân viên & Vai trò', icon: Users, roles: ['admin'] },
-  { id: 'reports', label: 'Báo cáo doanh thu', icon: ReceiptText, roles: ['admin'] },
-  { id: 'settings', label: 'Cài đặt', icon: Settings, roles: [] },
+  { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard, roles: ['admin'], href: '/tong-quan' },
+  { id: 'deals', label: 'Trung tâm đơn hàng', icon: ShoppingCart, roles: [], href: '/don-hang' },
+  { id: 'pipeline', label: 'Kho & Linh kiện', icon: Cpu, roles: [], href: '/kho-linh-kien' },
+  { id: 'team', label: 'Nhân viên & Vai trò', icon: Users, roles: ['admin'], href: '/nhan-su' },
+  { id: 'reports', label: 'Báo cáo doanh thu', icon: ReceiptText, roles: ['admin'], href: '/bao-cao' },
+  { id: 'settings', label: 'Cài đặt', icon: Settings, roles: [], href: '/cai-dat' },
 ];
 
 /** Trang mở đầu: Admin vào Tổng quan, nhân viên vào hàng đợi của họ. */
@@ -90,27 +92,31 @@ export interface OperationNavItem {
   queue: string;
   /** Vai trò được thấy mục này. Admin luôn thấy tất cả. */
   roles: Role[];
+  /** Route App Router tương ứng (MPA). */
+  href: string;
 }
 
 export const OPERATION_NAV: OperationNavItem[] = [
-  { id: 'sale-orders', label: 'Kinh doanh (Tạo/Sửa)', icon: ShoppingCart, queue: 'kinh_doanh', roles: ['kinh_doanh'] },
-  { id: 'warehouse-orders', label: 'Kho (Xuất / Serial)', icon: Warehouse, queue: 'kho', roles: ['kho'] },
+  { id: 'sale-orders', label: 'Kinh doanh (Tạo/Sửa)', icon: ShoppingCart, queue: 'kinh_doanh', roles: ['kinh_doanh'], href: '/van-hanh/kinh-doanh' },
+  { id: 'warehouse-orders', label: 'Kho (Xuất / Serial)', icon: Warehouse, queue: 'kho', roles: ['kho'], href: '/van-hanh/kho' },
   {
     id: 'technical-orders',
     label: 'Kỹ thuật (Lắp ráp / Test)',
     icon: Wrench,
     queue: 'ky_thuat',
     roles: ['ky_thuat', 'quan_ly_ky_thuat'],
+    href: '/van-hanh/ky-thuat',
   },
-  { id: 'warranty-orders', label: 'Bảo hành (Xử lý lỗi)', icon: ShieldCheck, queue: 'bao_hanh', roles: ['bao_hanh'] },
-  { id: 'shipping-orders', label: 'Vận chuyển & Phân ship', icon: Container, queue: 'quan_ly_ship', roles: ['quan_ly_ship'] },
-  { id: 'shipper-orders', label: 'Đơn giao của tôi', icon: Truck, queue: 'shipper', roles: ['shipper'] },
+  { id: 'warranty-orders', label: 'Bảo hành (Xử lý lỗi)', icon: ShieldCheck, queue: 'bao_hanh', roles: ['bao_hanh'], href: '/van-hanh/bao-hanh' },
+  { id: 'shipping-orders', label: 'Vận chuyển & Phân ship', icon: Container, queue: 'quan_ly_ship', roles: ['quan_ly_ship'], href: '/van-hanh/van-chuyen' },
+  { id: 'shipper-orders', label: 'Đơn giao của tôi', icon: Truck, queue: 'shipper', roles: ['shipper'], href: '/van-hanh/giao-hang' },
   {
     id: 'accounting-orders',
     label: 'Thanh toán & Thu tiền',
     icon: Calculator,
     queue: 'all',
     roles: ['kinh_doanh', 'shipper'],
+    href: '/van-hanh/thanh-toan',
   },
 ];
 
@@ -144,4 +150,34 @@ export function canAccessSection(roles: Role | Role[] | undefined | null, id: st
   if (roleArray.includes('admin')) return true;
   if (!PRIMARY_IDS.has(id)) return false;
   return primaryNavFor(roles).some((item) => item.id === id);
+}
+
+/** Map section id -> href (MPA). Dùng cho redirect/guard. */
+export function hrefForSection(id: string): string {
+  const primary = PRIMARY_NAV.find((item) => item.id === id);
+  if (primary) return primary.href;
+  const op = OPERATION_NAV.find((item) => item.id === id);
+  if (op) return op.href;
+  return '/don-hang';
+}
+
+/** Map pathname -> section id (để highlight sidebar + tiêu đề header). */
+export function sectionForPath(pathname: string | null | undefined): string {
+  if (!pathname) return 'deals';
+  const primary = PRIMARY_NAV.find((item) => item.href === pathname);
+  if (primary) return primary.id;
+  const op = OPERATION_NAV.find((item) => item.href === pathname);
+  if (op) return op.id;
+  // Link riêng từng đơn: /don-hang/HD-... thuộc Trung tâm đơn hàng
+  if (pathname === '/don-hang' || pathname.startsWith('/don-hang/')) return 'deals';
+  if (pathname === '/thong-bao') return 'notifications';
+  if (pathname === '/tim-kiem') return 'search';
+  if (pathname === '/khach-hang') return 'customers';
+  if (pathname === '/du-bao') return 'forecasting';
+  return 'deals';
+}
+
+/** Route mặc định sau login theo vai trò (MPA thay cho defaultSectionFor cũ). */
+export function defaultHrefFor(roles: Role | Role[] | undefined | null): string {
+  return hrefForSection(defaultSectionFor(roles));
 }

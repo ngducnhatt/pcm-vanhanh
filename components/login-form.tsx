@@ -18,7 +18,7 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const nextPath = searchParams.get("next") || "/";
+  const nextPath = searchParams.get("next") || "/don-hang";
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -31,7 +31,7 @@ export function LoginForm() {
     setIsSubmitting(false);
 
     if (success) {
-      router.replace(nextPath.startsWith("/") ? nextPath : "/");
+      router.replace(nextPath.startsWith("/") ? nextPath : "/don-hang");
     } else {
       setError("Thông tin đăng nhập không hợp lệ. Vui lòng kiểm tra lại.");
       setPassword("");

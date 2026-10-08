@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Bell, Loader2, Package } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ function groupOf(value: string): string {
 }
 
 export function NotificationsPage() {
+  const router = useRouter();
   const [items, setItems] = useState<Notif[]>([]);
   const [unread, setUnread] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,7 +70,7 @@ export function NotificationsPage() {
     toast.success("Đã đánh dấu tất cả đã đọc");
   };
 
-  /** Bấm thông báo: tự đánh dấu đã đọc + nhảy tới trang đơn hàng đó */
+  /** Bấm thông báo: tự đánh dấu đã đọc + nhảy tới route đơn hàng (MPA) */
   const openOrder = async (n: Notif) => {
     if (n.is_read === 0) {
       setUnread((u) => Math.max(0, u - 1));
@@ -86,6 +88,7 @@ export function NotificationsPage() {
         /* bỏ qua */
       }
       window.dispatchEvent(new CustomEvent("pcm:open-order", { detail: { orderId: n.order_id } }));
+      router.push("/don-hang");
     }
   };
 

@@ -2,30 +2,28 @@
 
 import { cn } from "@/lib/utils";
 import { FIELD_BASE, SECTION_TITLE, SURFACE_CARD } from "@/lib/ui";
-import type { Section } from "@/app/page";
 import { Bell, Search, Package, X } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DateRangePicker, type DatePreset, type DateRange } from "@/components/dashboard/date-range-picker";
 import { UserMenu } from "@/components/user-menu";
 
 interface HeaderProps {
-  activeSection: Section;
-  onSearch: (query: string) => void;
-  onNotifications: () => void;
-  onOpenAccounts?: () => void;
+  activeSection: string;
   datePreset: DatePreset;
   dateRange: DateRange;
   onDateRangeChange: (preset: DatePreset, range: DateRange) => void;
 }
 
-const sectionTitles: Record<Section, string> = {
+const sectionTitles: Record<string, string> = {
   overview: "Tổng quan",
-  pipeline: "Quy trình bán hàng",
-  deals: "Đơn sale",
+  pipeline: "Kho & Linh kiện",
+  deals: "Trung tâm đơn hàng",
   customers: "Khách hàng",
   team: "Nhân viên & Vai trò",
   forecasting: "Dự báo doanh thu",
-  reports: "Giao dịch",
+  reports: "Báo cáo doanh thu",
   settings: "Cài đặt",
   "sale-orders": "Đơn sale",
   "warehouse-orders": "Đơn kho",
@@ -33,10 +31,13 @@ const sectionTitles: Record<Section, string> = {
   "warranty-orders": "Đơn bảo hành",
   "shipping-orders": "Vận chuyển & Phân ship",
   "shipper-orders": "Đơn giao của tôi",
-  "accounting-orders": "Đơn kế toán",
+  "accounting-orders": "Thanh toán & Thu tiền",
+  search: "Kết quả tìm kiếm",
+  notifications: "Thông báo",
 };
 
-export function Header({ activeSection, onSearch, onNotifications, onOpenAccounts, datePreset, dateRange, onDateRangeChange }: HeaderProps) {
+export function Header({ activeSection, datePreset, dateRange, onDateRangeChange }: HeaderProps) {
+  const router = useRouter();
   const [searchFocused, setSearchFocused] = useState(false);
   const [query, setQuery] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -71,7 +72,7 @@ export function Header({ activeSection, onSearch, onNotifications, onOpenAccount
     setNotifs((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
   };
 
-  /** Bấm thông báo: tự đánh dấu đã đọc + nhảy tới trang đơn hàng đó */
+  /** Bấm thông báo: tự đánh dấu đã đọc + nhảy tới route đơn hàng (MPA) */
   const openNotifOrder = async (n: { id: string; order_id: string | null; is_read: number }) => {
     setNotificationsOpen(false);
     if (n.is_read === 0) {
@@ -89,8 +90,17 @@ export function Header({ activeSection, onSearch, onNotifications, onOpenAccount
       } catch {
         /* bỏ qua */
       }
+      // Cùng route /don-hang: OrdersHub nghe event để mở ngay.
+      // Khác route: OrdersHub đọc localStorage khi mount sau router.push.
       window.dispatchEvent(new CustomEvent("pcm:open-order", { detail: { orderId: n.order_id } }));
+      router.push("/don-hang");
     }
+  };
+
+  const submitSearch = (value: string) => {
+    const q = value.trim();
+    if (!q) return;
+    router.push(`/tim-kiem?q=${encodeURIComponent(q)}`);
   };
 
   const formatTime = (value: string) => {
@@ -103,13 +113,13 @@ export function Header({ activeSection, onSearch, onNotifications, onOpenAccount
     <header className="h-16 bg-background/80 backdrop-blur-sm sticky top-0 z-30 flex items-center justify-between px-6">
       <div className="flex items-center gap-6">
         <h1 className={cn(SECTION_TITLE, "truncate")}>
-          {sectionTitles[activeSection]}
+          {sectionTitles[activeSection] ?? "PCM Vận Hành"}
         </h1>
         <div className="hidden md:block"><DateRangePicker preset={datePreset} range={dateRange} onChange={onDateRangeChange} /></div>
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Search */}
+        {/* Search -> route /tim-kiem?q= (MPA) */}
         <div
           className={cn(
             "relative flex items-center transition-all duration-300",
@@ -122,7 +132,7 @@ export function Header({ activeSection, onSearch, onNotifications, onOpenAccount
             placeholder="Tìm kiếm..."
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter" && query.trim()) onSearch(query.trim()); }}
+            onKeyDown={(event) => { if (event.key === "Enter" && query.trim()) submitSearch(query); }}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
             className={cn(FIELD_BASE, "pl-9 pr-4 transition-all duration-200")}
@@ -182,14 +192,14 @@ export function Header({ activeSection, onSearch, onNotifications, onOpenAccount
                 {unread > 0 && (
                   <button onClick={markAllRead} className="flex-1 px-4 py-3 text-center text-xs font-medium text-muted-foreground hover:bg-secondary/60">Đánh dấu đã đọc</button>
                 )}
-                <button onClick={onNotifications} className="flex-1 px-4 py-3 text-center text-xs font-medium text-accent hover:bg-accent/5">Xem tất cả thông báo</button>
+                <Link href="/thong-bao" onClick={() => setNotificationsOpen(false)} className="flex-1 px-4 py-3 text-center text-xs font-medium text-accent hover:bg-accent/5">Xem tất cả thông báo</Link>
               </div>
             </div>
           )}
         </div>
 
         {/* Signed-in user menu */}
-        <UserMenu onOpenAccounts={onOpenAccounts} />
+        <UserMenu onOpenAccounts={() => router.push("/nhan-su")} />
       </div>
     </header>
   );

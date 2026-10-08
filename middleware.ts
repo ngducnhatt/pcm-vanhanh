@@ -16,10 +16,10 @@ export function middleware(request: NextRequest) {
   const isApi = pathname.startsWith('/api');
 
   if (hasSessionCookie) {
-    // Already signed in: /login would just bounce back
-    if (pathname === '/login') {
+    // Already signed in: /login would just bounce back (MPA: về Trung tâm đơn hàng)
+    if (pathname === '/login' || pathname === '/') {
       const url = request.nextUrl.clone();
-      url.pathname = '/';
+      url.pathname = '/don-hang';
       url.search = '';
       return NextResponse.redirect(url);
     }
@@ -31,6 +31,10 @@ export function middleware(request: NextRequest) {
     if (pathname === '/api/auth/login') {
       return NextResponse.next();
     }
+    // Tra cứu đơn hàng công khai cho khách (tự xác thực bằng SĐT ở API)
+    if (pathname === '/api/orders/track' || pathname.startsWith('/api/orders/track/')) {
+      return NextResponse.next();
+    }
     return NextResponse.json(
       { error: 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn' },
       { status: 401 }
@@ -38,6 +42,14 @@ export function middleware(request: NextRequest) {
   }
 
   if (pathname === '/login') {
+    return NextResponse.next();
+  }
+
+  // Trang chi tiết đơn hàng công khai (link duy nhất cho cả nhân viên lẫn khách).
+  // Chỉ cho qua khi có mã đơn sau /don-hang/ ; trang danh sách /don-hang vẫn cần đăng nhập.
+  const isPublicOrderPage =
+    pathname.startsWith('/don-hang/') && pathname.length > '/don-hang/'.length;
+  if (isPublicOrderPage) {
     return NextResponse.next();
   }
 

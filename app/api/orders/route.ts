@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
     const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const dateStr = new Date().toISOString().split('T')[0];
 
-    // Generate invoice no: HD-YYYYMMDD-XXX + retry chống trùng khi 2 request song song
+    // Mã đơn: số tăng dần từ 1 (logic sinh ở dưới, có retry chống trùng khi 2 request song song)
     const ALLOWED_METHODS = ['qr', 'cash', 'transfer'];
     const payMethod = initial_payment?.method || 'cash';
     if (initial_payment && !ALLOWED_METHODS.includes(payMethod)) {
@@ -317,18 +317,17 @@ export async function POST(request: NextRequest) {
     const newId = (prefix: string) =>
       `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 7)}`;
 
-    // Tạo đơn trong transaction + retry invoice_no khi trùng (chống race COUNT+1)
+    // Tạo đơn trong transaction + retry invoice_no khi trùng (chống race MAX+1).
+    // Mã đơn là số tăng dần từ 1 (1, 2, 3, ...). Đơn cũ định dạng HD-ngày-XXX
+    // khi CAST sang số ra 0 nên dãy mới vẫn bắt đầu từ 1 mà không đụng đơn cũ.
     let invoiceNo = '';
     try {
       const created = await withTransaction(async (query) => {
         let attemptInvoice = '';
         for (let attempt = 0; attempt < 5; attempt++) {
-          const countRows: any = await query('SELECT COUNT(*) as count FROM orders WHERE invoice_date = ?', [dateStr]);
-          const count = Number(countRows?.[0]?.count || 0) + 1 + attempt;
-          attemptInvoice =
-            attempt === 0
-              ? `HD-${dateStr.replace(/-/g, '')}-${String(count).padStart(3, '0')}`
-              : `HD-${dateStr.replace(/-/g, '')}-${String(count).padStart(3, '0')}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+          const maxRows: any = await query('SELECT MAX(CAST(invoice_no AS UNSIGNED)) AS max_no FROM orders', []);
+          const nextNo = Number(maxRows?.[0]?.max_no || 0) + 1 + attempt;
+          attemptInvoice = String(nextNo);
           try {
             await query(
               `INSERT INTO orders (
