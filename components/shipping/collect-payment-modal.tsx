@@ -78,8 +78,8 @@ export function CollectPaymentModal({
       }
       onSuccess();
       onClose();
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi thu tiền");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : "Lỗi thu tiền"));
     } finally {
       setIsSubmitting(false);
     }
@@ -159,11 +159,11 @@ export function CollectPaymentModal({
               Phương thức nhận tiền:
             </label>
             <div className="grid grid-cols-3 gap-2">
-              {[
+              {([
                 { id: "qr", label: "Mã QR", icon: QrCode },
                 { id: "cash", label: "Tiền mặt", icon: Banknote },
                 { id: "transfer", label: "Chuyển khoản", icon: CreditCard },
-              ].map((m) => {
+              ] as Array<{ id: PaymentMethod; label: string; icon: typeof QrCode }>).map((m) => {
                 const Icon = m.icon;
                 const isSelected = method === m.id;
                 return (
@@ -172,7 +172,7 @@ export function CollectPaymentModal({
                     type="button"
                     variant={isSelected ? "accent-soft" : "secondary"}
                     size="sm"
-                    onClick={() => setMethod(m.id as any)}
+                    onClick={() => setMethod(m.id)}
                     aria-pressed={isSelected}
                     className={cn(
                       "h-auto flex-col gap-1 px-2 py-2",

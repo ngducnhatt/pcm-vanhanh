@@ -25,7 +25,7 @@ async function main() {
   const user = await db
     .prepare('SELECT id, name, username FROM users WHERE LOWER(username) = LOWER(?)')
     .bind(username)
-    .first<any>();
+    .first<{ id: string; name: string; username: string | null }>();
 
   if (!user) {
     console.error(`Không tìm thấy tài khoản có tên đăng nhập "${username}"`);

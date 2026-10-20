@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { z } from 'zod';
 import { getDb } from '@/lib/db';
 import { generateToken, hashPassword } from '@/lib/crypto';
 import { checkPasswordPolicy, requirePermission, writeAuditLog } from '@/lib/auth';
 import { statusFromError } from '@/lib/permissions';
 import { Role, ROLE_LABELS } from '@/lib/types';
+import { getClientIp } from '@/lib/request-ip';
 
 export const ROLES = Object.keys(ROLE_LABELS) as Role[];
 
@@ -46,19 +48,17 @@ export async function GET() {
          GROUP BY u.id
          ORDER BY u.is_active DESC, u.name`
       )
-      .all<any>();
+      .all<Record<string, unknown>>();
 
-    const users = (result.results || []).map((u: any) => ({
+    const users = (result.results || []).map((u: Record<string, unknown>) => ({
       ...u,
       roles: typeof u.roles === 'string' && u.roles ? u.roles.split(',') : [],
     }));
     return NextResponse.json({ users });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error listing users:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi tải danh sách tài khoản' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi tải danh sách tài khoản');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
 
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     const duplicate = await db
       .prepare('SELECT id, name FROM users WHERE LOWER(username) = LOWER(?) OR (LOWER(email) = LOWER(?) AND email IS NOT NULL)')
       .bind(username, email || '')
-      .first<any>();
+      .first<Record<string, unknown>>();
 
     if (duplicate) {
       return NextResponse.json(
@@ -141,9 +141,9 @@ export async function POST(request: NextRequest) {
          GROUP BY u.id`
       )
       .bind(userId)
-      .first<any>();
+      .first<Record<string, unknown>>();
 
-    const ip = request.headers.get('cf-connecting-ip') || null;
+    const ip = getClientIp(request);
     await writeAuditLog({
       action: 'user_created',
       actor,
@@ -167,11 +167,9 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating user:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi tạo tài khoản' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi hệ thống');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

@@ -27,13 +27,13 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
     await fn();
     console.log(`✅ [PASS] ${name}`);
-  } catch (err: any) {
+  } catch (err: unknown) {
     failures++;
-    console.error(`❌ [FAIL] ${name}: ${err.message}`);
+    console.error(`Lỗi test: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
-function assert(condition: any, message: string) {
+function assert(condition: unknown, message: string) {
   if (!condition) throw new Error(message);
 }
 
@@ -164,7 +164,7 @@ async function main() {
       const row = await db
         .prepare('SELECT COUNT(*) AS total FROM user_roles WHERE role = ?')
         .bind(role)
-        .first<any>();
+        .first<{ total: number }>();
       assert((row?.total ?? 0) > 0, `Chưa seed tài khoản cho vai trò ${role}`);
     }
   });
@@ -233,7 +233,7 @@ async function main() {
     const stored = await db
       .prepare('SELECT id FROM sessions WHERE user_id = ?')
       .bind(testUserId)
-      .first<any>();
+      .first<{ id: string }>();
     assert(stored && stored.id !== token, 'Database phải lưu hash token, không lưu token thô');
 
     assert((await validateSessionToken(`${token}x`)) === null, 'Token bị sửa phải bị từ chối');
@@ -291,10 +291,10 @@ async function main() {
   await runTest('Nhật ký: ghi nhận đăng nhập thành công / thất bại', async () => {
     const success = await db
       .prepare("SELECT COUNT(*) AS total FROM auth_audit_log WHERE action = 'login_success'")
-      .first<any>();
+      .first<{ total: number }>();
     const failed = await db
       .prepare("SELECT COUNT(*) AS total FROM auth_audit_log WHERE action = 'login_failed'")
-      .first<any>();
+      .first<{ total: number }>();
     assert((success?.total ?? 0) > 0, 'Chưa ghi nhận đăng nhập thành công');
     assert((failed?.total ?? 0) > 0, 'Chưa ghi nhận đăng nhập thất bại');
   });

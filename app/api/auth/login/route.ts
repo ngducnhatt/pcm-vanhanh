@@ -7,6 +7,8 @@ import {
   SESSION_TTL_MS,
 } from '@/lib/auth';
 import { statusFromError } from '@/lib/permissions';
+import { logServerError, toSafeError } from '@/lib/api-error';
+import { getClientIp } from '@/lib/request-ip';
 
 const loginSchema = z.object({
   username: z.string().trim().min(1, 'Vui lòng nhập tên đăng nhập').max(64),
@@ -25,10 +27,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ip =
-      request.headers.get('cf-connecting-ip') ||
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      null;
+    // Chỉ tin header proxy được cấu hình tin cậy (mặc định không tin header nào).
+    const ip = getClientIp(request);
     const userAgent = request.headers.get('user-agent');
 
     const result = await authenticate(parsed.data.username, parsed.data.password, { ip, userAgent });
@@ -62,11 +62,10 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
-  } catch (error: any) {
-    console.error('Error during login:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi hệ thống khi đăng nhập' },
-      { status: statusFromError(error) }
-    );
+  } catch (error: unknown) {
+    logServerError('login', error);
+    // Không trả message gốc của lỗi hệ thống (có thể lộ chi tiết DB/stack).
+    const safe = toSafeError(error, 'Lỗi hệ thống khi đăng nhập');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

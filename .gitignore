@@ -23,3 +23,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# --- Secrets: KHÔNG BAO GIỜ commit ---
+# File .env chứa DATABASE_URL (kèm mật khẩu DB) và mật khẩu admin.
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Lockfile: dự án dùng npm (package-lock.json là nguồn chuẩn).
+# pnpm-lock.yaml / yarn.lock cố ý không commit để tránh lệch phiên bản.
+pnpm-lock.yaml
+yarn.lock

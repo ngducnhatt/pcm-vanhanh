@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { z } from 'zod';
 import { getDb } from '@/lib/db';
 import {
@@ -11,6 +12,7 @@ import {
 } from '@/lib/auth';
 import { statusFromError } from '@/lib/permissions';
 import { Role, ROLE_LABELS } from '@/lib/types';
+import { getClientIp } from '@/lib/request-ip';
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
 
@@ -36,7 +38,7 @@ async function countActiveAdmins(excludeUserId: string): Promise<number> {
   const row = await db
     .prepare("SELECT COUNT(DISTINCT u.id) AS total FROM users u INNER JOIN user_roles ur ON u.id = ur.user_id WHERE ur.role = 'admin' AND u.is_active = 1 AND u.id != ?")
     .bind(excludeUserId)
-    .first<any>();
+    .first<Record<string, unknown>>();
   return Number(row?.total ?? 0);
 }
 
@@ -72,7 +74,7 @@ export async function PATCH(
       const taken = await db
         .prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?')
         .bind(patch.username, id)
-        .first<any>();
+        .first<Record<string, unknown>>();
       if (taken) {
         return NextResponse.json({ error: 'Tên đăng nhập đã tồn tại' }, { status: 409 });
       }
@@ -82,7 +84,7 @@ export async function PATCH(
       const taken = await db
         .prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ?')
         .bind(patch.email, id)
-        .first<any>();
+        .first<Record<string, unknown>>();
       if (taken) {
         return NextResponse.json({ error: 'Email đã được tài khoản khác sử dụng' }, { status: 409 });
       }
@@ -110,7 +112,7 @@ export async function PATCH(
     }
 
     const sets: string[] = [];
-    const values: any[] = [];
+    const values: unknown[] = [];
 
     if (patch.name !== undefined && patch.name !== target.name) {
       sets.push('name = ?');
@@ -175,7 +177,7 @@ export async function PATCH(
       await destroyAllSessionsForUser(id);
     }
 
-    const ip = request.headers.get('cf-connecting-ip') || null;
+    const ip = getClientIp(request);
     const action = passwordChanged
       ? 'password_reset'
       : patch.unlock
@@ -203,15 +205,15 @@ export async function PATCH(
          GROUP BY u.id`
       )
       .bind(id)
-      .first<any>();
+      .first<Record<string, unknown>>();
 
     const parsedUser = updated ? { ...updated, roles: typeof updated.roles === 'string' && updated.roles ? updated.roles.split(',') : [] } : updated;
     return NextResponse.json({ success: true, user: parsedUser, changes, sessionsRevoked: mustRevoke });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating user:', error);
+    const safe = toSafeError(error, 'Không tìm thấy tài khoản');
     return NextResponse.json(
-      { error: error.message || 'Lỗi cập nhật tài khoản' },
-      { status: statusFromError(error) }
+      { error: safe.message }, { status: safe.status }
     );
   }
 }
@@ -252,7 +254,7 @@ export async function DELETE(
            (SELECT COUNT(*) FROM shipments WHERE shipper_id = ? OR assigned_by_user_id = ?) AS shipment_rows`
       )
       .bind(id, id, id, id, id)
-      .first<any>();
+      .first<Record<string, unknown>>();
     const totalLinked =
       Number(linked?.orders_created || 0) +
       Number(linked?.history_rows || 0) +
@@ -277,15 +279,15 @@ export async function DELETE(
       targetUserId: id,
       targetName: target.name,
       detail: { username: target.username },
-      ip: request.headers.get('cf-connecting-ip') || null,
+      ip: getClientIp(request),
     });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error deleting user:', error);
+    const safe = toSafeError(error, 'Lỗi hệ thống');
     return NextResponse.json(
-      { error: error.message || 'Lỗi xoá tài khoản' },
-      { status: statusFromError(error) }
+      { error: safe.message }, { status: safe.status }
     );
   }
 }

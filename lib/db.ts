@@ -2,49 +2,61 @@ import fs from 'node:fs';
 import path from 'node:path';
 import mysql, { Pool } from 'mysql2/promise';
 
-export interface PostgresStatement {
-  bind(...values: unknown[]): PostgresStatement;
+/**
+ * Adapter database theo giao diện giống D1/Postgres nhưng backend thật là
+ * MySQL/MariaDB (mysql2). Tên `Statement`/`Database` trung tính để không gây
+ * nhầm lẫn với Postgres.
+ */
+export interface Statement {
+  bind(...values: unknown[]): Statement;
   all<T = unknown>(): Promise<{ results: T[]; success: boolean }>;
   first<T = unknown>(colName?: string): Promise<T | null>;
   run(): Promise<{ success: boolean; meta?: { changes: number } }>;
 }
 
-export interface PostgresDatabase {
-  prepare(query: string): PostgresStatement;
+export interface Database {
+  prepare(query: string): Statement;
   exec(query: string): Promise<void>;
 }
 
 let mysqlPool: Pool | null = null;
+/**
+ * Pool riêng cho migration: `multipleStatements` chỉ bật ở đây.
+ * Pool của ứng dụng luôn để multipleStatements = false để giảm tác hại nếu
+ * có lỗ hổng SQL injection.
+ */
+let migrationPool: Pool | null = null;
 let mysqlInitialization: Promise<void> | null = null;
 
 function createMysqlAdapter(
   pool: Pool,
   ensureInitialized: () => Promise<void>
-): PostgresDatabase {
+): Database {
   return {
-    prepare(query: string): PostgresStatement {
+    prepare(query: string): Statement {
       let values: unknown[] = [];
-      const statement: PostgresStatement = {
+      const statement: Statement = {
         bind(...boundValues: unknown[]) {
           values = boundValues;
           return statement;
         },
         async all<T = unknown>() {
           await ensureInitialized();
-          const [rows] = await pool.query(query, values as any);
+          const [rows] = await pool.query(query, values as never[]);
           return { results: rows as T[], success: true };
         },
         async first<T = unknown>(colName?: string) {
           await ensureInitialized();
-          const [rows] = await pool.query(query, values as any);
-          const row = (rows as any[])[0] as (T & Record<string, unknown>) | undefined;
+          const [rows] = await pool.query(query, values as never[]);
+          const row = (rows as Array<Record<string, unknown>>)[0];
           if (!row) return null;
-          return (colName ? row[colName] ?? null : row) as T | null;
+          return (colName ? (row[colName] ?? null) : row) as T | null;
         },
         async run() {
           await ensureInitialized();
-          const [result] = await pool.query(query, values as any);
-          return { success: true, meta: { changes: (result as any).affectedRows ?? 0 } };
+          const [result] = await pool.query(query, values as never[]);
+          const affectedRows = (result as { affectedRows?: number }).affectedRows ?? 0;
+          return { success: true, meta: { changes: affectedRows } };
         },
       };
       return statement;
@@ -56,6 +68,16 @@ function createMysqlAdapter(
   };
 }
 
+/**
+ * Số connection tối đa của pool ứng dụng.
+ * Ưu tiên DB_POOL_MAX; PG_POOL_MAX giữ lại để tương thích cấu hình cũ.
+ */
+export function getPoolMax(): number {
+  const raw = process.env.DB_POOL_MAX ?? process.env.PG_POOL_MAX ?? '15';
+  const configured = Number(raw);
+  return Number.isInteger(configured) && configured > 0 ? configured : 15;
+}
+
 function getMysqlPool(): Pool {
   if (!mysqlPool) {
     const connectionString = process.env.DATABASE_URL;
@@ -63,22 +85,46 @@ function getMysqlPool(): Pool {
       throw new Error('DATABASE_URL is required to connect to MySQL/MariaDB.');
     }
 
-    const configuredMax = Number(process.env.PG_POOL_MAX || 15);
-    const poolMax = Number.isInteger(configuredMax) && configuredMax > 0 ? configuredMax : 15;
     mysqlPool = mysql.createPool({
       uri: connectionString,
-      connectionLimit: poolMax,
+      connectionLimit: getPoolMax(),
+      waitForConnections: true,
+      dateStrings: true,
+      // Runtime không bật multipleStatements: một câu lệnh mỗi lần gọi.
+      multipleStatements: false,
+      charset: 'utf8mb4',
+    });
+    (mysqlPool as unknown as { on: (event: string, cb: (error: Error) => void) => void }).on(
+      'error',
+      (error: Error) => {
+        console.error('Unexpected MySQL pool error:', error);
+      }
+    );
+  }
+
+  return mysqlPool;
+}
+
+/**
+ * Pool riêng cho migration — nơi duy nhất được phép `multipleStatements: true`
+ * vì file migration chứa nhiều câu lệnh.
+ */
+function getMigrationPool(): Pool {
+  if (!migrationPool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error('DATABASE_URL is required to connect to MySQL/MariaDB.');
+    }
+    migrationPool = mysql.createPool({
+      uri: connectionString,
+      connectionLimit: 1,
       waitForConnections: true,
       dateStrings: true,
       multipleStatements: true,
       charset: 'utf8mb4',
     });
-    (mysqlPool as any).on('error', (error: Error) => {
-      console.error('Unexpected MySQL pool error:', error);
-    });
   }
-
-  return mysqlPool;
+  return migrationPool;
 }
 
 async function initializeMysql(pool: Pool): Promise<void> {
@@ -101,11 +147,11 @@ async function initializeMysql(pool: Pool): Promise<void> {
           .sort();
 
         for (const file of files) {
-          const [existing] = await connection.query<any[]>(
+          const [existing] = await connection.query(
             'SELECT name FROM schema_migrations WHERE name = ?',
             [file]
           );
-          if (existing.length > 0) continue;
+          if (Array.isArray(existing) && existing.length > 0) continue;
 
           await connection.query('START TRANSACTION');
           try {
@@ -132,23 +178,41 @@ async function initializeMysql(pool: Pool): Promise<void> {
   await mysqlInitialization;
 }
 
-export function getDb(): PostgresDatabase {
+export function getDb(): Database {
   const pool = getMysqlPool();
-  return createMysqlAdapter(pool, () => initializeMysql(pool));
+  // Migration luôn chạy trên pool riêng (multipleStatements bật).
+  return createMysqlAdapter(pool, () => initializeMysql(getMigrationPool()));
 }
 
-/** Chạy callback trong 1 MySQL transaction (atomic cho multi-write). */
+/**
+ * Kết quả của 1 câu lệnh SQL trong transaction.
+ * - SELECT  -> mảng row
+ * - INSERT/UPDATE/DELETE -> object có `affectedRows`
+ */
+export type QueryResult = unknown[] | { affectedRows?: number; insertId?: number };
+
+/** Số dòng bị ảnh hưởng bởi 1 câu lệnh ghi (0 nếu kết quả không phải write). */
+export function affectedRows(result: unknown): number {
+  if (Array.isArray(result)) return result.length;
+  const value = (result as { affectedRows?: number } | null)?.affectedRows;
+  return typeof value === 'number' ? value : 0;
+}
+
+/**
+ * Chạy callback trong 1 MySQL transaction (atomic cho multi-write).
+ * `query` trả về mảng row (kết quả SELECT) hoặc `ResultSetHeader` (INSERT/UPDATE).
+ */
 export async function withTransaction<T>(
-  fn: (query: (sql: string, params?: unknown[]) => Promise<any>) => Promise<T>
+  fn: (query: (sql: string, params?: unknown[]) => Promise<QueryResult>) => Promise<T>
 ): Promise<T> {
   const pool = getMysqlPool();
-  await initializeMysql(pool);
+  await initializeMysql(getMigrationPool());
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const query = async (sql: string, params: unknown[] = []) => {
-      const [rows] = await conn.query(sql, params as any);
-      return rows;
+    const query = async (sql: string, params: unknown[] = []): Promise<QueryResult> => {
+      const [rows] = await conn.query(sql, params as never[]);
+      return rows as QueryResult;
     };
     const result = await fn(query);
     await conn.commit();
@@ -169,6 +233,10 @@ export async function closeDb(): Promise<void> {
   if (mysqlPool) {
     await mysqlPool.end();
     mysqlPool = null;
-    mysqlInitialization = null;
   }
+  if (migrationPool) {
+    await migrationPool.end();
+    migrationPool = null;
+  }
+  mysqlInitialization = null;
 }

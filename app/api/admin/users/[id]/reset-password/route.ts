@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { generateToken } from '@/lib/crypto';
 import {
   checkPasswordPolicy,
@@ -9,6 +10,7 @@ import {
   writeAuditLog,
 } from '@/lib/auth';
 import { statusFromError } from '@/lib/permissions';
+import { getClientIp } from '@/lib/request-ip';
 
 /**
  * POST /api/admin/users/[id]/reset-password
@@ -48,7 +50,7 @@ export async function POST(
       targetUserId: id,
       targetName: target.name,
       detail: { generated: !adminPassword },
-      ip: request.headers.get('cf-connecting-ip') || null,
+      ip: getClientIp(request),
     });
 
     return NextResponse.json({
@@ -56,11 +58,11 @@ export async function POST(
       message: `Đã đặt lại mật khẩu cho ${target.name}`,
       temporaryPassword: adminPassword ? null : password,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error resetting password:', error);
+    const safe = toSafeError(error, 'Lỗi hệ thống');
     return NextResponse.json(
-      { error: error.message || 'Lỗi đặt lại mật khẩu' },
-      { status: statusFromError(error) }
+      { error: safe.message }, { status: safe.status }
     );
   }
 }

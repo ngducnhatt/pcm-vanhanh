@@ -153,9 +153,12 @@ if (-not (Test-Path ".env")) {
     $envContent = @"
 # Sinh tự động bởi setup.ps1 - KHÔNG commit file này.
 DATABASE_URL=$databaseUrl
-PG_POOL_MAX=10
+DB_POOL_MAX=10
 GOOGLE_MAPS_API_KEY=
 PUBLIC_DOMAIN=localhost
+# Để trống = không tin header IP nào (an toàn mặc định).
+# Điền "x-forwarded-for" nếu deploy sau reverse proxy Caddy.
+TRUSTED_PROXY_HEADERS=
 
 ADMIN_NAME=$(ConvertTo-EnvValue $adminName)
 ADMIN_EMAIL=$(ConvertTo-EnvValue $adminEmail)

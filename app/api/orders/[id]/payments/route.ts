@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { getDb, withTransaction } from '@/lib/db';
 import { requirePermission, writeAuditLog } from '@/lib/auth';
 import { notifyOrderEvent } from '@/lib/notifications';
 import { statusFromError } from '@/lib/permissions';
 import { shouldCompleteOrder } from '@/lib/state-machine';
-import { PaymentMethod, PaymentStatus } from '@/lib/types';
+import { OrderStatus, PaymentMethod, PaymentStatus } from '@/lib/types';
+import { getClientIp } from '@/lib/request-ip';
+
+interface OrderPaymentRow {
+  id: string;
+  invoice_no: string;
+  status: OrderStatus;
+  total_amount: number;
+  paid_amount: number;
+  sales_user_id: string;
+}
+
 
 export async function POST(
   request: NextRequest,
@@ -45,7 +57,7 @@ export async function POST(
     const orderRow = await db
       .prepare('SELECT id, invoice_no, status, total_amount, paid_amount, sales_user_id FROM orders WHERE id = ?')
       .bind(id)
-      .first<any>();
+      .first<OrderPaymentRow>();
 
     if (!orderRow) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
@@ -67,7 +79,9 @@ export async function POST(
          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
         [paymentId, id, method as PaymentMethod, paymentAmount, currentUser.id]
       );
-      const sumRows: any = await query('SELECT SUM(amount) as total_paid FROM payments WHERE order_id = ?', [id]);
+      const sumRows = (await query('SELECT SUM(amount) as total_paid FROM payments WHERE order_id = ?', [
+        id,
+      ])) as Array<{ total_paid: number | null }>;
       const newPaidAmount = Number(sumRows?.[0]?.total_paid || 0);
       let newPaymentStatus: PaymentStatus = 'unpaid';
       if (newPaidAmount >= orderRow.total_amount && orderRow.total_amount > 0) {
@@ -109,7 +123,7 @@ export async function POST(
       targetUserId: null,
       targetName: orderRow.invoice_no,
       detail: { order_id: id, amount: paymentAmount, method },
-      ip: request.headers.get('x-forwarded-for'),
+      ip: getClientIp(request),
     });
 
     // Tag người tạo đơn khi có tiền về (trừ người vừa thu)
@@ -132,11 +146,9 @@ export async function POST(
       isAutoCompleted,
       message: `Đã ghi nhận thanh toán ${paymentAmount.toLocaleString()}đ thành công!`,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error adding payment:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi ghi nhận thanh toán' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi ghi nhận thanh toán');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       is_fallback: true,
       message: 'Tính toán khoảng cách theo thuật toán nội suy địa chỉ TP.HCM (hoặc tích hợp Google Maps API)',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error calculating distance:', error);
     return NextResponse.json({ error: 'Lỗi tính khoảng cách' }, { status: statusFromError(error) });
   }

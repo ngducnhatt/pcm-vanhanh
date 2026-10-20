@@ -14,8 +14,8 @@ function runTest(testName: string, fn: () => void) {
   try {
     fn();
     console.log(`✅ [PASS] ${testName}`);
-  } catch (err: any) {
-    console.error(`❌ [FAIL] ${testName}:`, err.message);
+  } catch (err: unknown) {
+    console.error(`Lỗi test:`, err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
 }

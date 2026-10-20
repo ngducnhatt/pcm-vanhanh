@@ -247,7 +247,7 @@ npm run db:create          # tạo pcm_vanhanh + pcm_vanhanh_test
 Copy-Item .env.example .env
 notepad .env               # sửa DATABASE_URL và ADMIN_*
 npm ci
-npm run db:migrate         # áp dụng 0001, 0003–0010
+npm run db:migrate         # áp dụng 0001–0010 (0002 là marker lịch sử, không tạo dữ liệu)
 npm run db:admin           # tạo admin đầu tiên từ ADMIN_*
 npm run dev
 ```
@@ -275,7 +275,13 @@ Lưu ý:
 
 #### Chạy kiểm thử
 
-`npm run test:flow` kiểm thử quy tắc chuyển trạng thái, không cần database. `npm run typecheck` kiểm tra TypeScript. `npm run build` build production.
+- `npm test` — unit test (`node:test` + tsx) cho state-machine, RBAC, rate limit, IP proxy, chuẩn hoá SĐT, mã hoá đơn. Không cần database.
+- `npm run lint` — ESLint (`eslint.config.mjs`); quy tắc `no-explicit-any` là **error** để ngăn `any` quay lại.
+- `npm run typecheck` — kiểm tra TypeScript.
+- `npm run test:flow` — script kiểm thử quy tắc chuyển trạng thái (cũ), không cần database.
+- `npm run build` — build production.
+
+Toàn bộ được chạy tự động trên CI (`.github/workflows/ci.yml`): `typecheck → lint → test → audit → build`.
 
 Kiểm thử đăng nhập cần MySQL/MariaDB (XAMPP) database riêng, tuyệt đối không dùng database production:
 
@@ -306,7 +312,7 @@ Production chạy trực tiếp trên Windows: MySQL/MariaDB (XAMPP) lưu dữ l
 
 #### Chạy production
 
-Trong `.env`, đặt `DATABASE_URL`, mật khẩu admin mạnh, `PG_POOL_MAX=15` và domain public. Thay `app.example.com` trong `Caddyfile` bằng domain thật:
+Trong `.env`, đặt `DATABASE_URL`, mật khẩu admin mạnh, `DB_POOL_MAX=15` và domain public. Thay `app.example.com` trong `Caddyfile` bằng domain thật:
 
 ```caddy
 app.example.com {

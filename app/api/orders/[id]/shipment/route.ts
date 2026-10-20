@@ -1,8 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { logServerError, toSafeError } from '@/lib/api-error';
+import { getDb, withTransaction, affectedRows } from '@/lib/db';
 import { requirePermission, writeAuditLog } from '@/lib/auth';
 import { notifyOrderEvent } from '@/lib/notifications';
 import { statusFromError } from '@/lib/permissions';
+import { getClientIp } from '@/lib/request-ip';
+import { OrderStatus } from '@/lib/types';
+
+interface ShipmentOrderRow {
+  id: string;
+  invoice_no: string;
+  status: OrderStatus;
+  sales_user_id: string;
+}
+
+interface ShipperRow {
+  id: string;
+  name: string;
+}
+
 
 export async function POST(
   request: NextRequest,
@@ -38,8 +54,8 @@ export async function POST(
 
     const db = getDb();
     const [orderRow, shipperRow] = await Promise.all([
-      db.prepare('SELECT id, invoice_no, status, sales_user_id FROM orders WHERE id = ?').bind(id).first<any>(),
-      db.prepare('SELECT u.id, u.name FROM users u INNER JOIN user_roles ur ON u.id = ur.user_id AND ur.role = ? WHERE u.id = ? AND u.is_active = 1').bind('shipper', shipper_id).first<any>(),
+      db.prepare('SELECT id, invoice_no, status, sales_user_id FROM orders WHERE id = ?').bind(id).first<ShipmentOrderRow>(),
+      db.prepare('SELECT u.id, u.name FROM users u INNER JOIN user_roles ur ON u.id = ur.user_id AND ur.role = ? WHERE u.id = ? AND u.is_active = 1').bind('shipper', shipper_id).first<ShipperRow>(),
     ]);
 
     if (!orderRow) {
@@ -62,74 +78,81 @@ export async function POST(
     const existingShipment = await db
       .prepare('SELECT id FROM shipments WHERE order_id = ?')
       .bind(id)
-      .first<any>();
+      .first<{ id: string }>();
 
     const shipmentId =
       existingShipment?.id || `ship_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    if (existingShipment) {
-      await db
-        .prepare(
+    const histId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const sourceLabel = km_source === 'gg_map' ? 'Google Maps' : 'Nhập tay';
+
+    /**
+     * Ghi shipment + đổi trạng thái đơn + ghi lịch sử trong MỘT transaction.
+     * Nếu `UPDATE orders ... WHERE status = 'ship_pending'` không ảnh hưởng dòng nào
+     * (đơn đã bị chuyển trạng thái bởi request khác) -> rollback toàn bộ, trả 409.
+     */
+    const assigned = await withTransaction(async (query) => {
+      if (existingShipment) {
+        await query(
           `UPDATE shipments
            SET shipper_id = ?, assigned_by_user_id = ?, address = ?, distance_km = ?, km_source = ?
-           WHERE id = ?`
-        )
-        .bind(
-          shipper_id,
-          currentUser.id,
-          address.trim(),
-          Number(distance_km),
-          km_source,
-          shipmentId
-        )
-        .run();
-    } else {
-      await db
-        .prepare(
+           WHERE id = ?`,
+          [
+            shipper_id,
+            currentUser.id,
+            address.trim(),
+            Number(distance_km),
+            km_source,
+            shipmentId,
+          ]
+        );
+      } else {
+        await query(
           `INSERT INTO shipments (
             id, order_id, shipper_id, assigned_by_user_id, address, distance_km, km_source, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-        )
-        .bind(
-          shipmentId,
-          id,
-          shipper_id,
-          currentUser.id,
-          address.trim(),
-          Number(distance_km),
-          km_source
-        )
-        .run();
-    }
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+          [
+            shipmentId,
+            id,
+            shipper_id,
+            currentUser.id,
+            address.trim(),
+            Number(distance_km),
+            km_source,
+          ]
+        );
+      }
 
-    // Update order status to ship_assigned (atomic theo trạng thái hiện tại)
-    const shipUpdate: any = await db
-      .prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?')
-      .bind('ship_assigned', id, 'ship_pending')
-      .run();
-    if ((shipUpdate?.meta?.changes ?? 1) === 0) {
+      // Update order status to ship_assigned (atomic theo trạng thái hiện tại)
+      const shipUpdate = await query(
+        'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?',
+        ['ship_assigned', id, 'ship_pending']
+      );
+      if (affectedRows(shipUpdate) === 0) {
+        return false;
+      }
+
+      // Log history
+      await query(
+        `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          histId,
+          id,
+          'ship_assigned',
+          currentUser.id,
+          `Quản lý ship phân công shipper ${shipperRow.name} (${km} km - ${sourceLabel}). ${note ? `Ghi chú: ${String(note).slice(0, 500)}` : ''}`,
+        ]
+      );
+      return true;
+    });
+
+    if (!assigned) {
       return NextResponse.json(
         { error: 'Trạng thái đơn đã thay đổi, vui lòng tải lại' },
         { status: 409 }
       );
     }
-
-    // Log history
-    const histId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const sourceLabel = km_source === 'gg_map' ? 'Google Maps' : 'Nhập tay';
-    await db
-      .prepare(
-        `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
-         VALUES (?, ?, ?, ?, ?)`
-      )
-      .bind(
-        histId,
-        id,
-        'ship_assigned',
-        currentUser.id,
-        `Quản lý ship phân công shipper ${shipperRow.name} (${km} km - ${sourceLabel}). ${note ? `Ghi chú: ${String(note).slice(0, 500)}` : ''}`
-      )
-      .run();
 
     await writeAuditLog({
       action: 'order_shipment_assigned',
@@ -137,7 +160,7 @@ export async function POST(
       targetUserId: null,
       targetName: orderRow.invoice_no,
       detail: { order_id: id, shipper_id, distance_km: km },
-      ip: request.headers.get('x-forwarded-for'),
+      ip: getClientIp(request),
     });
 
     // Tag shipper được gán + người tạo đơn
@@ -158,11 +181,9 @@ export async function POST(
       status: 'ship_assigned',
       message: `Đã phân công giao hàng cho ${shipperRow.name} thành công!`,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error assigning shipment:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi phân công vận chuyển' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi phân công vận chuyển');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

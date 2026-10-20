@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
            LIMIT ? OFFSET ?`
         )
         .bind(currentUser.id, limit, offset)
-        .all<any>()
+        .all<Record<string, unknown>>()
     ).results || [];
 
     const countRow = await db
@@ -33,12 +33,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        items: rows.map((r: any) => ({ ...r, is_read: Number(r.is_read) })),
+        items: rows.map((r: Record<string, unknown>) => ({ ...r, is_read: Number(r.is_read) })),
         unread: Number(countRow?.total || 0),
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching notifications:', error);
     return NextResponse.json({ error: 'Lỗi tải thông báo' }, { status: statusFromError(error) });
   }

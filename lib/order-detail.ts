@@ -1,5 +1,108 @@
 import { getDb } from '@/lib/db';
-import type { Order, OrderItem, OrderStatusHistory, Payment, Shipment } from '@/lib/types';
+import type {
+  KmSource,
+  Order,
+  OrderItem,
+  OrderStatus,
+  OrderStatusHistory,
+  Payment,
+  PaymentMethod,
+  PaymentStatus,
+  Role,
+  Shipment,
+  User,
+} from '@/lib/types';
+
+/** Row thô của bảng `orders` (kèm 2 cột join từ bảng `users`). */
+interface OrderRow {
+  id: string;
+  invoice_no: string;
+  invoice_date: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_address: string | null;
+  customer_email: string | null;
+  tags: string | null;
+  note: string | null;
+  sales_user_id: string;
+  status: OrderStatus;
+  payment_status: PaymentStatus;
+  related_order_id: string | null;
+  total_amount: number;
+  paid_amount: number;
+  created_at: string;
+  updated_at: string;
+  sales_user_name: string | null;
+  sales_user_email: string | null;
+}
+
+/** Row thô của bảng `order_items` (kèm 4 cột join từ bảng `products`). */
+interface OrderItemRow {
+  id: string;
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  warranty_months: number | null;
+  serial_number: string | null;
+  created_at: string;
+  product_sku: string | null;
+  product_name: string | null;
+  product_category: string | null;
+  product_stock_qty: number | null;
+}
+
+/** Row thô của bảng `order_status_history` (kèm cột join từ `users`). */
+interface HistoryRow {
+  id: string;
+  order_id: string;
+  status: OrderStatus;
+  changed_by_user_id: string;
+  note: string | null;
+  snapshot_serials: string | null;
+  created_at: string;
+  user_name: string | null;
+  user_role: string | null;
+}
+
+/** Row thô của bảng `payments` (kèm cột join từ `users`). */
+interface PaymentRow {
+  id: string;
+  order_id: string;
+  method: PaymentMethod;
+  amount: number;
+  collected_by_user_id: string;
+  paid_at: string;
+  collected_user_name: string | null;
+}
+
+/** Row thô của bảng `shipments` (kèm 3 cột join từ `users`). */
+interface ShipmentRow {
+  id: string;
+  order_id: string;
+  shipper_id: string;
+  assigned_by_user_id: string;
+  address: string;
+  distance_km: number;
+  km_source: KmSource;
+  created_at: string;
+  shipper_name: string | null;
+  shipper_phone: string | null;
+  assigned_user_name: string | null;
+}
+
+/** Tạo object `User` rút gọn từ các cột join (chỉ dùng để hiển thị tên). */
+function stubUser(id: string, name: string | null, fallbackName: string, roles: Role[]): User {
+  return {
+    id,
+    name: name || fallbackName,
+    phone: '',
+    email: '',
+    roles,
+    is_active: 1,
+    created_at: '',
+  };
+}
 
 /**
  * Lấy toàn bộ chi tiết 1 đơn hàng theo id (order + items + history + payments + shipment).
@@ -18,7 +121,7 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
        WHERE o.id = ?`
     )
     .bind(id)
-    .first<any>();
+    .first<OrderRow>();
 
   if (!orderRow) return null;
 
@@ -33,7 +136,7 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
          ORDER BY oi.created_at ASC`
       )
       .bind(id)
-      .all<any>()
+      .all<OrderItemRow>()
   ).results || [];
 
   const items: OrderItem[] = itemsRows.map((row) => ({
@@ -66,7 +169,7 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
          ORDER BY h.created_at DESC`
       )
       .bind(id)
-      .all<any>()
+      .all<HistoryRow>()
   ).results || [];
 
   const history: OrderStatusHistory[] = historyRows.map((row) => ({
@@ -77,16 +180,8 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
     note: row.note,
     snapshot_serials: row.snapshot_serials,
     created_at: row.created_at,
-    changed_by_user: {
-      id: row.changed_by_user_id,
-      name: row.user_name || 'Hệ thống',
-      phone: null,
-      email: '',
-      roles: ['admin'],
-      is_active: 1,
-      created_at: '',
-    },
-  })) as any;
+    changed_by_user: stubUser(row.changed_by_user_id, row.user_name, 'Hệ thống', ['admin']),
+  }));
 
   // 4. Fetch payments
   const paymentRows = (
@@ -99,7 +194,7 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
          ORDER BY p.paid_at DESC`
       )
       .bind(id)
-      .all<any>()
+      .all<PaymentRow>()
   ).results || [];
 
   const payments: Payment[] = paymentRows.map((row) => ({
@@ -109,16 +204,13 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
     amount: row.amount,
     collected_by_user_id: row.collected_by_user_id,
     paid_at: row.paid_at,
-    collected_by_user: {
-      id: row.collected_by_user_id,
-      name: row.collected_user_name || 'Nhân viên',
-      phone: null,
-      email: '',
-      roles: ['kinh_doanh'],
-      is_active: 1,
-      created_at: '',
-    },
-  })) as any;
+    collected_by_user: stubUser(
+      row.collected_by_user_id,
+      row.collected_user_name,
+      'Nhân viên',
+      ['kinh_doanh']
+    ),
+  }));
 
   // 5. Fetch shipment
   const shipmentRow = await db
@@ -130,7 +222,7 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
        WHERE s.order_id = ?`
     )
     .bind(id)
-    .first<any>();
+    .first<ShipmentRow>();
 
   const shipment: Shipment | null = shipmentRow
     ? {
@@ -143,24 +235,16 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
         km_source: shipmentRow.km_source,
         created_at: shipmentRow.created_at,
         shipper: {
-          id: shipmentRow.shipper_id,
-          name: shipmentRow.shipper_name || 'Shipper',
-          phone: shipmentRow.shipper_phone,
-          email: '',
-          roles: ['shipper'],
-          is_active: 1,
-          created_at: '',
+          ...stubUser(shipmentRow.shipper_id, shipmentRow.shipper_name, 'Shipper', ['shipper']),
+          phone: shipmentRow.shipper_phone ?? '',
         },
-        assigned_by_user: {
-          id: shipmentRow.assigned_by_user_id,
-          name: shipmentRow.assigned_user_name || 'Quản lý ship',
-          phone: null,
-          email: '',
-          roles: ['quan_ly_ship'],
-          is_active: 1,
-          created_at: '',
-        },
-      } as any
+        assigned_by_user: stubUser(
+          shipmentRow.assigned_by_user_id,
+          shipmentRow.assigned_user_name,
+          'Quản lý ship',
+          ['quan_ly_ship']
+        ),
+      }
     : null;
 
   let parsedTags: string[] = [];
@@ -188,15 +272,12 @@ export async function fetchOrderDetail(id: string): Promise<Order | null> {
     paid_amount: orderRow.paid_amount,
     created_at: orderRow.created_at,
     updated_at: orderRow.updated_at,
-    sales_user: {
-      id: orderRow.sales_user_id,
-      name: orderRow.sales_user_name || 'Kinh doanh',
-      phone: null,
-      email: orderRow.sales_user_email || '',
-      roles: ['kinh_doanh'],
-      is_active: 1,
-      created_at: '',
-    } as any,
+    sales_user: stubUser(
+      orderRow.sales_user_id,
+      orderRow.sales_user_name,
+      'Kinh doanh',
+      ['kinh_doanh']
+    ),
     items,
     history,
     payments,
@@ -254,12 +335,12 @@ export function toPublicOrder(order: Order): PublicOrder {
     total_amount: Number(order.total_amount),
     paid_amount: Number(order.paid_amount),
     items: (order.items || []).map((it) => ({
-      product_name: (it as any).product?.name || 'Linh kiện',
+      product_name: it.product?.name || 'Linh kiện',
       quantity: it.quantity,
       unit_price: Number(it.unit_price),
       warranty_months: it.warranty_months ?? 36,
     })),
-    payments: (order.payments || []).map((p: any) => ({
+    payments: (order.payments || []).map((p) => ({
       method: p.method,
       amount: Number(p.amount),
       paid_at: p.paid_at,
@@ -268,7 +349,7 @@ export function toPublicOrder(order: Order): PublicOrder {
       ? {
           address: order.shipment.address,
           distance_km: order.shipment.distance_km,
-          shipper_name: (order.shipment as any).shipper?.name || null,
+          shipper_name: order.shipment.shipper?.name || null,
         }
       : null,
     history: (order.history || []).map((h) => ({ status: h.status, created_at: h.created_at })),

@@ -87,8 +87,8 @@ export function AssignShipmentModal({
       toast.success(
         `Đã tính toán: ${data.distance_km} km (${data.duration_text || "khoảng thời gian di chuyển"})`
       );
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi tính khoảng cách");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : "Lỗi tính khoảng cách"));
     } finally {
       setIsCalculatingDistance(false);
     }
@@ -135,8 +135,8 @@ export function AssignShipmentModal({
       toast.success(data.message || "Đã phân công shipper thành công!");
       onSuccess();
       onClose();
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi phân công vận chuyển");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : "Lỗi phân công vận chuyển"));
     } finally {
       setIsSubmitting(false);
     }

@@ -89,7 +89,11 @@ export function OrderDetailTabs({
             <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
               {order.history?.map((h) => {
                 const isRollback = h.snapshot_serials != null;
-                let snapshotList: any[] = [];
+                let snapshotList: Array<{
+                  name?: string | null;
+                  quantity?: number | null;
+                  serial_number?: string | null;
+                }> = [];
                 if (isRollback) {
                   try {
                     snapshotList = JSON.parse(h.snapshot_serials || "[]");
@@ -140,7 +144,7 @@ export function OrderDetailTabs({
                           <div className="divide-y divide-warning/20">
                             {snapshotList.map((snap, idx) => (
                               <div key={idx} className="py-1 flex justify-between">
-                                <span>{snap.name} (x{snap.quantity})</span>
+                                <span>{snap.name ?? "Linh kiện"} (x{snap.quantity ?? 0})</span>
                                 <span className="font-mono text-warning">
                                   Serial: {snap.serial_number || "Chưa gán"}
                                 </span>

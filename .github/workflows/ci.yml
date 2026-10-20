@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Typecheck · Lint · Test · Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` dùng package-lock.json làm nguồn chuẩn (không có pnpm/yarn lockfile).
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Security audit (production deps)
+        run: npm audit --omit=dev
+
+      - name: Build
+        run: npm run build
+        env:
+          # Build không cần DB thật; migrate chỉ chạy khi app khởi động.
+          DATABASE_URL: mysql://ci:@localhost:3306/pcm_vanhanh_ci
+          # Secret tối thiểu để `next build` không fail ở một số route tĩnh.
+          ADMIN_NAME: ci
+          ADMIN_USERNAME: ci
+          ADMIN_PASSWORD: ci-password-placeholder
+          ADMIN_PHONE: '0900000000'

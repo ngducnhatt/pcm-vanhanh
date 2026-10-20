@@ -21,6 +21,24 @@ export interface RequestMeta {
 
 const USER_COLUMNS = 'id, name, phone, email, is_active, created_at, username, last_login_at, locked_until, failed_login_count';
 
+/** Row thô của bảng `users` (dùng chung cho các truy vấn bên dưới). */
+interface UserRow {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  is_active: number;
+  created_at: string;
+  username: string | null;
+  last_login_at: string | null;
+  locked_until: string | null;
+  failed_login_count: number;
+  password_hash?: string | null;
+  expires_at?: string;
+  last_seen_at?: string;
+  session_id?: string;
+}
+
 async function getUserRoles(userId: string): Promise<Role[]> {
   const db = getDb();
   const result = await db
@@ -30,11 +48,11 @@ async function getUserRoles(userId: string): Promise<Role[]> {
   return (result.results || []).map((row) => row.role);
 }
 
-function toAuthUser(row: any, roles: Role[]): AuthUser {
+function toAuthUser(row: UserRow, roles: Role[]): AuthUser {
   return {
     id: row.id,
     name: row.name,
-    phone: row.phone ?? null,
+    phone: row.phone ?? '',
     email: row.email,
     roles,
     is_active: row.is_active,
@@ -59,7 +77,7 @@ function newId(prefix: string): string {
  */
 export async function getUserById(id: string): Promise<AuthUser | null> {
   const db = getDb();
-  const row = await db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`).bind(id).first<any>();
+  const row = await db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`).bind(id).first<UserRow>();
   if (!row) return null;
   const roles = await getUserRoles(id);
   return toAuthUser(row, roles);
@@ -73,7 +91,7 @@ export async function getUserByUsername(username: string): Promise<AuthUser | nu
   const row = await db
     .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE username = LOWER(?)`)
     .bind(username)
-    .first<any>();
+    .first<UserRow>();
   if (!row) return null;
   const roles = await getUserRoles(row.id);
   return toAuthUser(row, roles);
@@ -89,7 +107,7 @@ export async function getUserCredentialsByUsername(
   const row = await db
     .prepare(`SELECT ${USER_COLUMNS}, password_hash FROM users WHERE username = LOWER(?)`)
     .bind(username)
-    .first<any>();
+    .first<UserRow>();
   if (!row) return null;
   const roles = await getUserRoles(row.id);
   return { ...toAuthUser(row, roles), password_hash: row.password_hash ?? null };
@@ -102,7 +120,7 @@ export async function getAllUsers(): Promise<AuthUser[]> {
   const db = getDb();
   const result = await db
     .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE is_active = 1 ORDER BY name`)
-    .all<any>();
+    .all<UserRow>();
   const users = result.results || [];
   return Promise.all(users.map(async (row) => {
     const roles = await getUserRoles(row.id);
@@ -118,7 +136,7 @@ export async function getUsersByRole(role: Role): Promise<AuthUser[]> {
   const result = await db
     .prepare(`SELECT ${USER_COLUMNS} FROM users u INNER JOIN user_roles ur ON u.id = ur.user_id WHERE ur.role = ? AND u.is_active = 1 ORDER BY u.name`)
     .bind(role)
-    .all<any>();
+    .all<UserRow>();
   const users = result.results || [];
   return Promise.all(users.map(async (row) => {
     const roles = await getUserRoles(row.id);
@@ -379,11 +397,11 @@ export async function validateSessionToken(token: string): Promise<AuthUser | nu
        WHERE s.id = ?`
     )
     .bind(sessionId)
-    .first<any>();
+    .first<UserRow>();
 
   if (!row) return null;
 
-  if (new Date(row.expires_at).getTime() <= Date.now()) {
+  if (new Date(row.expires_at ?? 0).getTime() <= Date.now()) {
     await db.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run();
     return null;
   }
@@ -419,7 +437,7 @@ export async function listUserSessions(userId: string) {
        FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen_at DESC`
     )
     .bind(userId, new Date().toISOString())
-    .all<any>();
+    .all<UserRow>();
   return result.results || [];
 }
 

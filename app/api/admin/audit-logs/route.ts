@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { getDb } from '@/lib/db';
 import { requirePermission, writeAuditLog } from '@/lib/auth';
 import { statusFromError } from '@/lib/permissions';
@@ -21,25 +22,23 @@ export async function GET(request: NextRequest) {
          LIMIT ? OFFSET ?`
       )
       .bind(limit, offset)
-      .all<any>();
+      .all<Record<string, unknown>>();
 
-    const total = await db.prepare('SELECT COUNT(*) AS total FROM auth_audit_log').first<any>();
+    const total = await db.prepare('SELECT COUNT(*) AS total FROM auth_audit_log').first<Record<string, unknown>>();
 
     return NextResponse.json({
-      logs: (result.results || []).map((row: any) => ({
+      logs: (result.results || []).map((row: Record<string, unknown>) => ({
         ...row,
-        detail: row.detail ? safeParseJson(row.detail) : null,
+        detail: typeof row.detail === 'string' && row.detail ? safeParseJson(row.detail) : null,
       })),
       total: Number(total?.total ?? 0),
       limit,
       offset,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching audit logs:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi tải nhật ký' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi tải nhật ký');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
 
@@ -70,11 +69,9 @@ export async function DELETE(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true, cutoff });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error purging audit logs:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi xoá nhật ký' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi hệ thống');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

@@ -380,7 +380,8 @@ pcm-vanhanh/
 │   ├── auth.ts, crypto.ts, db.ts, permissions.ts, state-machine.ts,
 │   ├── notifications.ts, nav.ts, types.ts, ui.ts, utils.ts, invoice.ts
 ├── hooks/                      # use-toast.ts, use-mobile.ts, use-debounced-value.ts
-├── migrations/                 # 0001 + 0003..0010 (không có 0002) SQL tiến hóa schema
+├── tests/                      # Unit test node:test (state-machine, permissions, security, invoice)
+├── migrations/                 # 0001–0010 SQL tiến hóa schema (0002 = marker lịch sử)
 ├── scripts/                    # migrate/create-admin/set-user-password/test-*/scrape/db-create/setup SQL
 ├── public/                     # Icon, placeholder, fonts Google Sans self-host
 ├── styles/globals.css          # CSS mẫu shadcn CÒN SÓT, KHÔNG được import (file chết)
@@ -401,7 +402,7 @@ pcm-vanhanh/
 |---|---|
 | `package.json` | Khai báo `pcm-van-hanh@0.1.0`, `engines.node >=22.5.0`. Scripts: `dev/build/start/typecheck`, `db:create` (chạy ps1), `db:migrate`, `db:admin`, `products:scrape`, `test:flow` (không cần DB), `test:auth` (cần DB `_test`), `user:password`. Deps chính: `next@16`, `react@19`, `mysql2`, `zod`, Radix UI (~20 gói), `tailwindcss@4`, `sonner`, `recharts`, `react-hook-form`. DevDeps: `tsx` (chạy TS trực tiếp), `typescript@5`. |
 | `tsconfig.json` | `strict: true`, `target ES6`, `jsx: react-jsx`, `moduleResolution: bundler` + plugin `next`. Alias `@/* → ./*`. Include toàn bộ `**/*.ts(x)`, exclude `node_modules`. Build sẽ fail nếu lỗi type (kết hợp `next.config.mjs` không ignore). |
-| `next.config.mjs` | Cấu hình tối giản: **không** bỏ qua lỗi TypeScript (`ignoreBuildErrors: false`), `images.unoptimized: true` để khỏi cần Image Optimization server khi self-host. Không có rewrite/headers phức tạp. |
+| `next.config.mjs` | Cấu hình: **không** bỏ qua lỗi TypeScript (`ignoreBuildErrors: false`), `images.unoptimized: true` để khỏi cần Image Optimization server khi self-host, `poweredByHeader: false` (không lộ phiên bản Next). **Security headers** toàn cục: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Strict-Transport-Security`, `Permissions-Policy`, `X-DNS-Prefetch-Control`, `X-Permitted-Cross-Domain-Policies`. Không có rewrite phức tạp. |
 | `postcss.config.mjs` | Chỉ đăng ký `@tailwindcss/postcss` (Tailwind v4). Gói `autoprefixer` vẫn còn trong deps nhưng không dùng trực tiếp. |
 | `components.json` | Cấu hình shadcn/ui: style `new-york`, `rsc: true`, `baseColor: neutral`, dùng CSS variables, alias `components/utils/ui/lib/hooks`, icon `lucide`, CSS entry `app/globals.css`. CLI shadcn đọc file này khi add component mới. |
 | `Caddyfile` | Template reverse proxy mẫu `app.example.com → 127.0.0.1:3000` + `encode zstd gzip`. Khi deploy thật phải sửa domain. Caddy tự xin TLS khi DNS + forward 80/443 đúng. |
@@ -412,7 +413,7 @@ pcm-vanhanh/
 | `README.md` | Tài liệu gốc: state machine 14 trạng thái, 8 roles, luồng login, schema DB, tính năng (barcode/print/Maps/rollback), hướng dẫn cài đặt + hosting + backup. Docs này mở rộng từ README, không thay thế. |
 | `docs/CHAY-LAN-DAU.md` | Hướng dẫn chạy lần đầu đầy đủ cho Windows + XAMPP: cài đặt, tạo DB, `.env`, migrate, tạo admin, chạy app, test, backup, troubleshooting. |
 | `AGENTS.md` / `CLAUDE.md` | `AGENTS.md` chỉ chứa cảnh báo "This is NOT the Next.js you know" (do `next dev` tự chèn, verify tại `node_modules/next/dist/server/lib/generate-agent-files.js`). `CLAUDE.md` chỉ có 1 dòng `@AGENTS.md` (delegate). Không chứa nghiệp vụ. |
-| `.env` | File local (không commit, đã có trong `.gitignore`). Chứa `DATABASE_URL` (MySQL chính), `PG_POOL_MAX`, `GOOGLE_MAPS_API_KEY`, `PUBLIC_DOMAIN`, `ADMIN_NAME/ADMIN_EMAIL/ADMIN_USERNAME/ADMIN_PASSWORD/ADMIN_PHONE` (seed admin). |
+| `.env` | File local (không commit, đã có trong `.gitignore`). Chứa `DATABASE_URL` (MySQL chính), `DB_POOL_MAX`, `GOOGLE_MAPS_API_KEY`, `PUBLIC_DOMAIN`, `ADMIN_NAME/ADMIN_EMAIL/ADMIN_USERNAME/ADMIN_PASSWORD/ADMIN_PHONE` (seed admin). |
 | `.env.example` | Mẫu cấu hình để `Copy-Item .env.example .env`. Ghi chú URL-encode mật khẩu, mặc định XAMPP root không mật khẩu. Hướng dẫn chi tiết: `docs/CHAY-LAN-DAU.md`. |
 | `.env.test.example` | Mẫu duy nhất `TEST_DATABASE_URL` → DB test riêng `..._test`. `test-auth-flow.ts` từ chối DB không kết thúc `_test` để tránh xóa prod. |
 | `pcm_vanhanh.sql` | Dump full phpMyAdmin (~112KB, MariaDB 10.4): 12 bảng + dữ liệu thật (users/roles, orders, audit log). Dùng để backup/khôi phục nhanh, soi dữ liệu mẫu, dựng dev giống prod. **Không** dùng làm migration. |
@@ -480,7 +481,7 @@ pcm-vanhanh/
 |---|---|
 | `lib/auth.ts` (517 dòng) | Trung tâm xác thực/session. Exports: `authenticate()` (check `locked_until/is_active`, verify hash, tăng counter atomic, lock 15p sau 5 sai), `createSession/validateSessionToken/destroySession`, `getCurrentUser/requireUser/requirePermission`, `getUserById/ByUsername/getUserCredentialsByUsername/getAllUsers/getUsersByRole` (join `user_roles`, ẩn `password_hash`), `checkPasswordPolicy` (1–128 ký tự, không ràng buộc phức tạp), `setUserPassword` (reset lockout), `writeAuditLog` (best-effort). Session TTL 7 ngày, lưu `SHA-256(token)`. Mọi API + Server Component đều gate qua đây. |
 | `lib/crypto.ts` (110 dòng) | Hash/token thuần Web Crypto (không thêm dep). `hashPassword/verifyPassword` (`pbkdf2_sha256$210000$salt$hash`, salt 16B, key 32B), `constantTimeEqual` chống timing-leak, `generateToken` (base64url), `hashToken` (SHA-256). `verifyPassword` không throw. Nền tảng cho `auth.ts`. |
-| `lib/db.ts` (174 dòng) | Adapter MySQL giả interface D1/Postgres. `getDb(): PostgresDatabase`, `withTransaction(fn)`, `closeDb()`, types `PostgresStatement/PostgresDatabase` (`prepare().bind().all()/first()/run()`, `exec()`). Pool `mysql2/promise` từ `DATABASE_URL`/`PG_POOL_MAX`, `utf8mb4`, `dateStrings`. `initializeMysql()` lấy `GET_LOCK`, tạo `schema_migrations`, auto-apply `migrations/*.sql` trong transaction. `withTransaction` dùng `begin/commit/rollback` cho multi-write nguyên tử. |
+| `lib/db.ts` (~230 dòng) | Adapter MySQL giả interface D1 (tên trung tính `Database`/`Statement`, KHÔNG còn `Postgres*`). `getDb()`, `withTransaction(fn)` + `affectedRows()` + `QueryResult` để route kiểm tra affectedRows. Pool ứng dụng `multipleStatements: false`; pool MIGRATION riêng mới bật `multipleStatements: true`. Env: `DB_POOL_MAX` (fallback `PG_POOL_MAX` cũ). (`prepare().bind().all()/first()/run()`, `exec()`). Pool `mysql2/promise` từ `DATABASE_URL`/`DB_POOL_MAX`, `utf8mb4`, `dateStrings`. `initializeMysql()` lấy `GET_LOCK`, tạo `schema_migrations`, auto-apply `migrations/*.sql` trong transaction. `withTransaction` dùng `begin/commit/rollback` cho multi-write nguyên tử. |
 | `lib/permissions.ts` (87 dòng) | Ma trận RBAC trung tâm. Type `Permission` (15 quyền: `order:create/edit/cancel/receive_kho/export_kho/complete_kithuat/complete_baohanh/assign_ship/start_delivery/complete_delivery/collect_payment` + `product:manage/report:read/audit:read/account:manage`), `ROLE_PERMISSIONS` (admin=all; `quan_ly_ky_thuat` chỉ `report:read` giám sát, không chặn luồng), `can()`, `canManageAccounts()`, `AuthError/statusFromError`. `requirePermission()` + mọi API dùng `can()` để trả 401/403 đúng. |
 | `lib/state-machine.ts` (201 dòng) | Máy trạng thái đơn hàng. `hasTechnicalTag/hasWarrantyTag/hasShippingTag` (normalize không dấu + English), `getNextStatusAfterKhoDone/getNextStatusAfterKithuatDone/getNextStatusAfterBaohanhDone`, `POST_KHO_STATUSES`, `requiresRollbackToKho`, `canEditOrder/canCancelOrder` (trừ `completed/cancelled`), `shouldCompleteOrder` (`ship_done+full`), `canPerformAction` (12 action × role × status, admin bypass), `getRoleQueueStatuses` (hàng đợi mỗi role). Quyết định toàn bộ routing + rollback. |
 | `lib/notifications.ts` (133 dòng) | Fan-out thông báo. `NotifyKind` (9 loại: created/edited/rollback/exported/status/payment/shipment/cancelled/completed), `notifyUsers` (insert best-effort, dedupe, trừ actor), `activeUserIdsByRole`, `STATUS_ROLE_MAP` (role phụ trách theo status mới), `notifyOrderEvent` (gom sales + shipper + roles theo status). API đơn hàng gọi sau mỗi mutation. |
@@ -622,7 +623,8 @@ pcm-vanhanh/
 | File | Giải thích chi tiết |
 |---|---|
 | `migrations/0001_initial_schema.sql` | Dựng lõi: `users` (role đơn NOT NULL), `products`, `orders` (tags JSON, status 14, payment 3), `order_items(serial)`, `history/payments/shipments` + index cơ bản. Nền luồng kho→KT→BH→ship. Các `REFERENCES` khai báo ở cấp cột chỉ để tài liệu — MariaDB bỏ qua, FK thật nằm ở 0010. |
-| `migrations/0003_auth_accounts.sql` | Thêm login: mở rộng `users(username/password_hash/must_change_password/last_login/lock...)`, tạo `sessions(id=sha256)` + `auth_audit_log`. (Không có file 0002 trong repo.) |
+| `migrations/0002_seed_data.sql` | **Marker lịch sử, không tạo dữ liệu.** File seed SQLite cũ (`INSERT OR IGNORE`) đã bị xóa khỏi repo ở commit f92787a vì không chạy được trên MySQL. File này chỉ chứa `SELECT 1` để chuỗi đánh số 0002 không bị bỏ trống và ghi nhận 0002 đã được xử lý. |
+| `migrations/0003_auth_accounts.sql` | Thêm login: mở rộng `users(username/password_hash/must_change_password/last_login/lock...)`, tạo `sessions(id=sha256)` + `auth_audit_log`. |
 | `migrations/0004_simplify_password.sql` | Đơn giản hóa pass: drop `must_change_password`, reset lock counters. Từ đây chấp nhận mọi pass 1–128 ký tự. |
 | `migrations/0005_order_address_item_warranty.sql` | Thêm `orders.customer_address TEXT` + `order_items.warranty_months INT DEFAULT 36 CHECK≥0`. Phục vụ địa chỉ giao + BH từng linh kiện. |
 | `migrations/0006_user_roles.sql` | Đa role: tạo `user_roles(user_id,role)` khoá chính ghép + migrate `INSERT IGNORE ... SELECT id,role FROM users`. Giữ `users.role` tương thích ngược. |
@@ -680,7 +682,7 @@ Hàng đợi mặc định (`getRoleQueueStatuses`): `kho → [new, kho_pending]
 | Biến | Ý nghĩa |
 |---|---|
 | `DATABASE_URL` | Chuỗi kết nối MySQL chính, vd `mysql://root:pass@localhost:3306/pcm_vanhanh` (pass chỉ chữ+số để khỏi URL-encode). |
-| `PG_POOL_MAX` | Số connection pool (`15` ở prod). Tên `PG_*` là di sản adapter Postgres/D1, nhưng giá trị dùng cho `mysql2` pool. |
+| `DB_POOL_MAX` | Số connection pool (`15` ở prod). Tên `PG_*` là di sản adapter Postgres/D1, nhưng giá trị dùng cho `mysql2` pool. |
 | `GOOGLE_MAPS_API_KEY` | Key Distance Matrix để tính km. Không có → fallback nội suy, vẫn chạy. |
 | `PUBLIC_DOMAIN` | Domain public cho Caddy (tham khảo). |
 | `ADMIN_NAME/ADMIN_EMAIL/ADMIN_USERNAME/ADMIN_PASSWORD/ADMIN_PHONE` | Seed admin đầu (`db:admin`). Không có user mẫu/mật khẩu mặc định nào khác. |
@@ -693,7 +695,9 @@ Hàng đợi mặc định (`getRoleQueueStatuses`): `kho → [new, kho_pending]
 | `npm run db:migrate` | Áp dụng các migration còn thiếu trong `migrations/` (kể cả 0010 FK), ghi vào `schema_migrations`. Chạy lại an toàn. |
 | `npm run db:admin` | Tạo admin đầu từ `ADMIN_*` (chỉ lần đầu). |
 | `npm run typecheck` | Kiểm tra TypeScript (`tsc --noEmit`). |
-| `npm run test:flow` | Test state-machine, không cần DB. |
+| `npm run lint` | ESLint (flat config `eslint.config.mjs`, quy tắc `next/core-web-vitals` + cấm `any`). |
+| `npm test` | Unit test bằng `node:test` (state-machine, permissions, rate-limit, IP proxy, SĐT, mã hoá đơn) — không cần DB. |
+| `npm run test:flow` | Test state-machine (script cũ), không cần DB. |
 | `npm run test:auth` | Test auth, cần `.env.test` + DB `_test`. |
 | `npm run user:password -- admin ["MatKhauMoi123"]` | Reset pass khi mất admin (mở khóa + kích hoạt + xóa sessions). |
 | `npm run products:scrape` | Cào `pcmarket.vn` nạp catalog (`--dry-run` để thử). |
@@ -706,7 +710,7 @@ Hàng đợi mặc định (`getRoleQueueStatuses`): `kho → [new, kho_pending]
 
 1. **Dev Windows:** cài Node 22 LTS + XAMPP (chỉ cần MySQL; Apache cho phpMyAdmin) → `npm run db:create` → `Copy-Item .env.example .env` + `notepad .env` → `npm ci` → `npm run db:migrate` → `npm run db:admin` → `npm run dev` → mở `localhost:3000`. Chi tiết: `docs/CHAY-LAN-DAU.md`.
 2. **Test:** `db:create` đã tạo `pcm_vanhanh_test` → `Copy-Item .env.test.example .env.test` → điền `TEST_DATABASE_URL` → `npm run test:flow` (nhanh) + `npm run test:auth` (cần DB test) + `npm run typecheck`.
-3. **Prod máy công ty:** `.env` điền `DATABASE_URL`/pass admin mạnh/`PG_POOL_MAX=15`; sửa `Caddyfile` domain thật; `npm ci` → `db:migrate` → `db:admin` → `npm run build`; PowerShell 1 chạy `next start` bind `127.0.0.1:3000`, PowerShell 2 chạy `caddy run`; cấu hình Task Scheduler **At startup** + MySQL khởi động trước app.
+3. **Prod máy công ty:** `.env` điền `DATABASE_URL`/pass admin mạnh/`DB_POOL_MAX=15`; sửa `Caddyfile` domain thật; `npm ci` → `db:migrate` → `db:admin` → `npm run build`; PowerShell 1 chạy `next start` bind `127.0.0.1:3000`, PowerShell 2 chạy `caddy run`; cấu hình Task Scheduler **At startup** + MySQL khởi động trước app.
 4. **Mạng:** DNS `A` → IP public, router forward TCP `80/443` tới máy chủ (IP LAN tĩnh), firewall mở `80/443` (hoặc allow `caddy.exe`), **không** mở `3306` ra Internet, kiểm tra CGNAT, UPS + backup ngoài máy.
 5. **Backup:** `& "C:\xampp\mysql\bin\mysqldump.exe" -u root -p --result-file=".\backups\pcm_vanhanh-<stamp>.sql" pcm_vanhanh`, lưu bản mã hóa ngoài máy, thử restore định kỳ. Cập nhật code: pull → `npm ci` → `db:migrate` → `build` → restart Next.js.
 

@@ -177,8 +177,8 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
 
       toast.success(data.message || "Cập nhật thành công!");
       fetchOrders();
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi cập nhật trạng thái");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : "Lỗi cập nhật trạng thái"));
     }
   };
 
@@ -201,8 +201,8 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
 
       toast.success(data.message || "Đã hủy đơn hàng thành công!");
       fetchOrders();
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi hủy đơn hàng");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : "Lỗi hủy đơn hàng"));
     }
   };
 

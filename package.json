@@ -9,6 +9,8 @@
     "build": "next build",
     "dev": "next dev",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "start": "next start",
     "db:create": "powershell -ExecutionPolicy Bypass -File scripts/db-create.ps1",
     "products:scrape": "tsx scripts/scrape-pcmarket.ts",
@@ -73,10 +75,13 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "@tailwindcss/postcss": "^4.1.9",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.2",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tsx": "^4.23.15",

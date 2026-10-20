@@ -182,8 +182,8 @@ export function ExportWarehouseModal({
       toast.success(data.message || "Xuất kho thành công!");
       onSuccess();
       onClose();
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi xuất kho");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : "Lỗi xuất kho"));
     } finally {
       setIsSubmitting(false);
     }

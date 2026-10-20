@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { z } from 'zod';
 import { getDb } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
     let query = 'SELECT id, sku, name, unit_price, stock_qty, category, created_at FROM products';
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     if (search) {
       query += ' WHERE sku LIKE ? OR name LIKE ? OR category LIKE ?';
@@ -40,12 +41,10 @@ export async function GET(request: NextRequest) {
       { products: result.results || [] },
       { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching products:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi tải danh sách sản phẩm' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi tải danh sách sản phẩm');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
 
@@ -105,11 +104,9 @@ export async function POST(request: NextRequest) {
       { success: true, product: created },
       { status: 201 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating product:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi tạo sản phẩm' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi hệ thống');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

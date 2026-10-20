@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { getDb } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
 
@@ -38,11 +39,8 @@ export async function GET(
       return NextResponse.json({ error: `Không tìm thấy đơn hàng ${code}` }, { status: 404 });
     }
     return NextResponse.json({ id: row.id, invoice_no: row.invoice_no });
-  } catch (e: any) {
-    const status = e?.status || 401;
-    return NextResponse.json(
-      { error: e?.message || 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn' },
-      { status }
-    );
+  } catch (e: unknown) {
+    const safe = toSafeError(e, 'Chưa đăng nhập hoặc phiên đăng nhập đã hết hạn');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

@@ -1,7 +1,9 @@
 import { cookies } from 'next/headers';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { NextRequest, NextResponse } from 'next/server';
 import { destroySession, getCurrentUser, SESSION_COOKIE_NAME, writeAuditLog } from '@/lib/auth';
 import { statusFromError } from '@/lib/permissions';
+import { getClientIp } from '@/lib/request-ip';
 
 export async function GET() {
   try {
@@ -32,12 +34,10 @@ export async function GET() {
       },
       { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching auth user:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi lấy thông tin người dùng' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi lấy thông tin người dùng');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (currentUser) {
-      const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
+      const ip = getClientIp(request);
       await writeAuditLog({
         action: 'logout',
         actor: currentUser,
@@ -72,11 +72,9 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error during logout:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi đăng xuất' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi hệ thống');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

@@ -162,9 +162,10 @@ Nếu `.env` đã tồn tại (máy đã từng chạy), **sửa trực tiếp**
 
 ```dotenv
 DATABASE_URL=mysql://root:@localhost:3306/pcm_vanhanh
-PG_POOL_MAX=10
+DB_POOL_MAX=10
 GOOGLE_MAPS_API_KEY=
 PUBLIC_DOMAIN=localhost
+TRUSTED_PROXY_HEADERS=
 
 ADMIN_NAME=Administrator
 ADMIN_EMAIL=admin@localhost
@@ -178,9 +179,10 @@ Giải thích:
 | Biến | Ý nghĩa |
 |---|---|
 | `DATABASE_URL` | Chuỗi kết nối MySQL. Cú pháp: `mysql://user:password@host:port/database` |
-| `PG_POOL_MAX` | Số connection tối đa trong pool. Tên `PG_*` là di sản, vẫn dùng cho `mysql2`. Dev dùng `10`, production có thể `15`. |
+| `DB_POOL_MAX` | Số connection tối đa trong pool `mysql2`. Dev dùng `10`, production có thể `15`. (Tên cũ `DB_POOL_MAX` vẫn được đọc để tương thích.) |
 | `GOOGLE_MAPS_API_KEY` | Tùy chọn. Không có key vẫn chạy; API tính km sẽ fallback nội suy theo tên quận. |
 | `PUBLIC_DOMAIN` | Chỉ dùng khi deploy qua Caddy. Dev để `localhost`. |
+| `TRUSTED_PROXY_HEADERS` | Tùy chọn. Danh sách header chứa IP client thật do reverse proxy ghi (ví dụ `x-forwarded-for` cho Caddy, `cf-connecting-ip` cho Cloudflare). **Mặc định rỗng = không tin header IP nào** — rate-limit sẽ gom mọi client vào một bucket chung. Chỉ khai báo khi app không bị truy cập trực tiếp ngoài proxy. |
 | `ADMIN_*` | Dùng **một lần** bởi `npm run db:admin` để tạo tài khoản admin đầu tiên. |
 
 ### 5.3. `DATABASE_URL` theo từng trường hợp
@@ -268,7 +270,7 @@ Giải thích:
 
 - App tự đọc các file trong `migrations/` và chạy theo thứ tự.
 - Migration đã chạy được ghi vào bảng `schema_migrations`, nên **chạy lại sẽ bỏ qua**, không mất dữ liệu.
-- Không có file `0002` là bình thường (lịch sử dự án).
+- File `0002_seed_data.sql` là **marker lịch sử** (chỉ `SELECT 1`, không tạo dữ liệu) — giữ chỗ cho số 0002 đã bị gỡ khỏi repo.
 - Migration `0010` bổ sung **khoá ngoại thật** — cần thiết trên MariaDB/XAMPP.
 
 Nếu lỗi:
@@ -596,7 +598,7 @@ Chỉ làm sau khi đã chạy ổn ở máy dev.
 
 1. Sửa `.env`:
    - `ADMIN_PASSWORD` mạnh.
-   - `PG_POOL_MAX=15`.
+   - `DB_POOL_MAX=15`.
    - `PUBLIC_DOMAIN=<domain thật>`.
 2. Build:
 

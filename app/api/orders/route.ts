@@ -6,6 +6,47 @@ import { can, statusFromError } from '@/lib/permissions';
 import { getRoleQueueStatuses } from '@/lib/state-machine';
 import { formatInvoiceNo, MAX_INVOICE_SEQUENCE_SQL } from '@/lib/invoice';
 import { Order, OrderStatus, PaymentStatus, Role } from '@/lib/types';
+import { getClientIp } from '@/lib/request-ip';
+import { logServerError, toSafeError } from '@/lib/api-error';
+
+/**
+ * Lỗi unique constraint của MySQL/MariaDB (ER_DUP_ENTRY).
+ * Dùng để xử lý retry khi sinh mã hoá đơn bị trùng.
+ */
+function isDuplicateEntryError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'ER_DUP_ENTRY'
+  );
+}
+
+/** Row thô của truy vấn danh sách đơn hàng (kèm các cột join). */
+interface OrderListRow {
+  id: string;
+  invoice_no: string;
+  invoice_date: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_address: string | null;
+  customer_email: string | null;
+  tags: string | null;
+  note: string | null;
+  sales_user_id: string;
+  status: OrderStatus;
+  payment_status: PaymentStatus;
+  related_order_id: string | null;
+  total_amount: number;
+  paid_amount: number;
+  created_at: string;
+  updated_at: string;
+  sales_user_name: string | null;
+  sales_user_email: string | null;
+  shipper_id: string | null;
+  shipping_address: string | null;
+  shipping_distance_km: number | null;
+  shipper_name: string | null;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -53,7 +94,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN users sh ON s.shipper_id = sh.id
       WHERE 1=1
     `;
-    const params: any[] = [];
+    const params: unknown[] = [];
 
     // Filter by specific status
     if (status) {
@@ -127,7 +168,7 @@ export async function GET(request: NextRequest) {
     query += ' ORDER BY o.created_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
 
-    const rawOrders = (await db.prepare(query).bind(...params).all<any>()).results || [];
+    const rawOrders = (await db.prepare(query).bind(...params).all<OrderListRow>()).results || [];
 
     // Format orders and fetch basic items count
     const orders: Order[] = rawOrders.map((row) => {
@@ -159,32 +200,32 @@ export async function GET(request: NextRequest) {
         sales_user: {
           id: row.sales_user_id,
           name: row.sales_user_name || 'Kinh doanh',
-          phone: null,
+          phone: '',
           email: row.sales_user_email || '',
           roles: ['kinh_doanh'],
           is_active: 1,
           created_at: '',
-        } as any,
+        },
         shipment: row.shipper_id
           ? {
               id: '',
               order_id: row.id,
               shipper_id: row.shipper_id,
               assigned_by_user_id: '',
-              address: row.shipping_address,
-              distance_km: row.shipping_distance_km,
+              address: row.shipping_address ?? '',
+              distance_km: row.shipping_distance_km ?? 0,
               km_source: 'gg_map',
               created_at: '',
               shipper: {
                 id: row.shipper_id,
                 name: row.shipper_name || 'Shipper',
-                phone: null,
+                phone: '',
                 email: '',
                 roles: ['shipper'],
                 is_active: 1,
                 created_at: '',
               },
-            } as any
+            }
           : null,
       };
     });
@@ -193,9 +234,9 @@ export async function GET(request: NextRequest) {
       { orders, page, limit },
       { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching orders:', error);
-    const msg = error?.code === 'ER_DUP_ENTRY' ? 'Dữ liệu trùng lặp' : 'Lỗi tải danh sách đơn hàng';
+    const msg = isDuplicateEntryError(error) ? 'Dữ liệu trùng lặp' : 'Lỗi tải danh sách đơn hàng';
     return NextResponse.json({ error: msg }, { status: statusFromError(error) });
   }
 }
@@ -246,7 +287,9 @@ export async function POST(request: NextRequest) {
       if (items.length > 100) {
         return NextResponse.json({ error: 'Tối đa 100 dòng hàng mỗi đơn' }, { status: 400 });
       }
-      const productIds = [...new Set(items.map((i: any) => i.product_id).filter(Boolean))];
+      const productIds = [
+        ...new Set(items.map((i: { product_id?: string }) => i.product_id).filter(Boolean)),
+      ];
       if (productIds.length === 0) {
         return NextResponse.json({ error: 'Thiếu product_id' }, { status: 400 });
       }
@@ -254,12 +297,12 @@ export async function POST(request: NextRequest) {
         await db
           .prepare(`SELECT id, unit_price FROM products WHERE id IN (${productIds.map(() => '?').join(', ')})`)
           .bind(...productIds)
-          .all<any>()
+          .all<Record<string, unknown>>()
       ).results || [];
       if (prodRows.length !== productIds.length) {
         return NextResponse.json({ error: 'Có sản phẩm không tồn tại' }, { status: 400 });
       }
-      const priceById = new Map(prodRows.map((p: any) => [p.id, Number(p.unit_price)]));
+      const priceById = new Map(prodRows.map((p) => [p.id, Number(p.unit_price)]));
       for (const item of items) {
         const qty = Number(item.quantity);
         if (!item.product_id || !Number.isInteger(qty) || qty <= 0 || qty > 10000) {
@@ -336,7 +379,7 @@ export async function POST(request: NextRequest) {
       const created = await withTransaction(async (query) => {
         let attemptInvoice = '';
         for (let attempt = 0; attempt < 5; attempt++) {
-          const maxRows: any = await query(MAX_INVOICE_SEQUENCE_SQL, []);
+          const maxRows = (await query(MAX_INVOICE_SEQUENCE_SQL, [])) as Array<{ max_no: number | null }>;
           const nextNo = Number(maxRows?.[0]?.max_no || 0) + 1 + attempt;
           attemptInvoice = formatInvoiceNo(nextNo);
           try {
@@ -359,8 +402,8 @@ export async function POST(request: NextRequest) {
               ]
             );
             break;
-          } catch (e: any) {
-            if (e?.code === 'ER_DUP_ENTRY' && attempt < 4) continue;
+          } catch (e: unknown) {
+            if (isDuplicateEntryError(e) && attempt < 4) continue;
             throw e;
           }
         }
@@ -389,8 +432,8 @@ export async function POST(request: NextRequest) {
         return { invoiceNo: attemptInvoice };
       });
       invoiceNo = created.invoiceNo;
-    } catch (e: any) {
-      if (e?.code === 'ER_DUP_ENTRY') {
+    } catch (e: unknown) {
+      if (isDuplicateEntryError(e)) {
         return NextResponse.json({ error: 'Trùng số hóa đơn, vui lòng thử lại' }, { status: 409 });
       }
       throw e;
@@ -402,7 +445,7 @@ export async function POST(request: NextRequest) {
       targetUserId: null,
       targetName: invoiceNo,
       detail: { order_id: orderId, total: totalAmount },
-      ip: request.headers.get('x-forwarded-for'),
+      ip: getClientIp(request),
     });
 
     // Tag kho khi có đơn mới cần xuất (bỏ qua bản nháp)
@@ -427,11 +470,9 @@ export async function POST(request: NextRequest) {
       paymentStatus,
       message: `Đơn hàng ${invoiceNo} đã được tạo thành công!`,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating order:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi tạo đơn hàng mới' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi tạo đơn hàng mới');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

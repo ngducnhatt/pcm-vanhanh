@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { logServerError, toSafeError } from '@/lib/api-error';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import {
@@ -12,6 +13,7 @@ import {
   writeAuditLog,
 } from '@/lib/auth';
 import { statusFromError } from '@/lib/permissions';
+import { getClientIp } from '@/lib/request-ip';
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Vui lòng nhập mật khẩu hiện tại').max(128),
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest) {
     // Invalidate every other session, then re-issue one for the current device
     await destroyAllSessionsForUser(currentUser.id);
     const { token, expiresAt } = await createSession(currentUser.id, {
-      ip: request.headers.get('cf-connecting-ip') || null,
+      ip: getClientIp(request),
       userAgent: request.headers.get('user-agent'),
     });
 
@@ -86,11 +88,9 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error changing password:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi đổi mật khẩu' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi đổi mật khẩu');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

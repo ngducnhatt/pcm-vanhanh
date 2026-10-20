@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
            LIMIT ? OFFSET ?`
         )
         .bind(...params, limit, offset)
-        .all<any>()
+        .all<Record<string, unknown>>()
     ).results || [];
 
     const totalRow = await db
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       .bind(...params)
       .first<{ total: number }>();
 
-    const items = rows.map((r: any) => ({
+    const items = rows.map((r: Record<string, unknown>) => ({
       id: r.id,
       order_id: r.order_id,
       invoice_no: r.invoice_no,
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       { items, total: Number(totalRow?.total || 0), limit, offset },
       { headers: { 'Cache-Control': 'no-store' } }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching activity:', error);
     return NextResponse.json({ error: 'Lỗi tải hoạt động' }, { status: statusFromError(error) });
   }

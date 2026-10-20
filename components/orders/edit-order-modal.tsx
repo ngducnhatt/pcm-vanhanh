@@ -186,8 +186,8 @@ export function EditOrderModal({ order, isOpen, onClose, onSuccess }: EditOrderM
       toast.success(data.message || "Cập nhật đơn hàng thành công!");
       onSuccess();
       onClose();
-    } catch (err: any) {
-      toast.error(err.message || "Lỗi cập nhật đơn hàng");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : "Lỗi cập nhật đơn hàng"));
     } finally {
       setIsSubmitting(false);
     }

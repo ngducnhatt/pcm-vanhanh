@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { getDb, withTransaction, affectedRows } from '@/lib/db';
 import { requireUser, writeAuditLog } from '@/lib/auth';
 import { notifyOrderEvent } from '@/lib/notifications';
 import { can, statusFromError } from '@/lib/permissions';
@@ -9,7 +9,35 @@ import {
   canEditOrder,
   requiresRollbackToKho,
 } from '@/lib/state-machine';
-import { Order, OrderItem, OrderStatus, OrderStatusHistory, Payment, Shipment } from '@/lib/types';
+import {
+  Order,
+  OrderItem,
+  OrderStatus,
+  OrderStatusHistory,
+  Payment,
+  PaymentStatus,
+  Shipment,
+} from '@/lib/types';
+/** Row thô của bảng `orders` dùng cho các thao tác sửa / huỷ đơn. */
+interface OrderEditRow {
+  id: string;
+  invoice_no: string;
+  status: OrderStatus;
+  payment_status: PaymentStatus;
+  sales_user_id: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string | null;
+  customer_address: string | null;
+  tags: string | null;
+  note: string | null;
+  total_amount: number;
+  paid_amount: number;
+  created_at: string;
+  updated_at: string;
+}
+
+import { getClientIp } from '@/lib/request-ip';
 
 export async function GET(
   request: NextRequest,
@@ -25,7 +53,7 @@ export async function GET(
     }
 
     return NextResponse.json({ order });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching order details:', error);
     return NextResponse.json(
       { error: 'Lỗi tải chi tiết đơn hàng' },
@@ -53,7 +81,7 @@ export async function PUT(
     const currentOrder = await db
       .prepare('SELECT * FROM orders WHERE id = ?')
       .bind(id)
-      .first<any>();
+      .first<OrderEditRow>();
 
     if (!currentOrder) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
@@ -108,7 +136,34 @@ export async function PUT(
     addChange('Email', currentOrder.customer_email, customer_email ?? currentOrder.customer_email);
     addChange('Ghi chú', currentOrder.note, note ?? currentOrder.note);
 
-    let currentItems: any[] = [];
+    interface OrderItemEditRow {
+      id: string;
+      product_id: string;
+      product_name: string | null;
+      sku: string | null;
+      quantity: number;
+      unit_price: number;
+      serial_number: string | null;
+      warranty_months: number | null;
+    }
+
+    interface OrderItemInput {
+      product_id: string;
+      quantity?: number;
+      unit_price?: number;
+      serial_number?: string | null;
+      warranty_months?: number;
+    }
+
+    interface ProductBriefRow {
+      id: string;
+      name: string;
+      sku: string;
+    }
+
+    let currentItems: OrderItemEditRow[] = [];
+    /** Lịch sử rollback ghi TRƯỚC khi cập nhật đơn (giữ đúng thứ tự thời gian). */
+    let rollbackHistory: { id: string; note: string; snapshotSerials: string } | null = null;
 
     // Check if items changed
     if (items && Array.isArray(items)) {
@@ -121,21 +176,21 @@ export async function PUT(
              WHERE oi.order_id = ?`
           )
           .bind(id)
-          .all<any>()
+          .all<OrderItemEditRow>()
       ).results || [];
 
-      const productIds = [...new Set(items.map((item: any) => item.product_id).filter(Boolean))];
+      const productIds = [...new Set(items.map((item: OrderItemInput) => item.product_id).filter(Boolean))];
       const products = productIds.length
         ? (await db
             .prepare(`SELECT id, name, sku FROM products WHERE id IN (${productIds.map(() => '?').join(', ')})`)
             .bind(...productIds)
-            .all<any>()).results || []
+            .all<ProductBriefRow>()).results || []
         : [];
-      const productById = new Map(products.map((product: any) => [product.id, product]));
+      const productById = new Map(products.map((product) => [product.id, product]));
       const oldDescription = currentItems.map((item) =>
         `${item.product_name || item.sku || item.product_id} ×${item.quantity} (${item.unit_price.toLocaleString('vi-VN')}đ, BH ${item.warranty_months ?? 36} tháng${item.serial_number ? `, SN ${item.serial_number}` : ''})`
       ).join('; ') || 'Không có';
-      const newDescription = items.map((item: any) => {
+      const newDescription = items.map((item: OrderItemInput) => {
         const product = productById.get(item.product_id);
         return `${product?.name || product?.sku || item.product_id} ×${item.quantity || 1} (${Number(item.unit_price || 0).toLocaleString('vi-VN')}đ, BH ${item.warranty_months ?? 36} tháng${item.serial_number ? `, SN ${item.serial_number}` : ''})`;
       }).join('; ') || 'Không có';
@@ -159,66 +214,54 @@ export async function PUT(
         );
 
         // 2. Record rollback in order_status_history with snapshot_serials
-        const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        await db
-          .prepare(
-            `INSERT INTO order_status_history (
-              id, order_id, status, changed_by_user_id, note, snapshot_serials, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-          )
-          .bind(
-            historyId,
-            id,
-            newStatus,
-            currentUser.id,
-            `Rollback về Chờ xuất kho do ${actorLabel} sửa số lượng/sản phẩm: ${reason}`,
-            snapshotSerials
-          )
-          .run();
+        //    (ghi trong transaction, sau khi cập nhật đơn -> atomic).
+        rollbackHistory = {
+          id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          note: `Rollback về Chờ xuất kho do ${actorLabel} sửa số lượng/sản phẩm: ${reason}`,
+          snapshotSerials,
+        };
       }
 
-      // 3. Replace order items with new items
-      await db.prepare('DELETE FROM order_items WHERE order_id = ?').bind(id).run();
+      // 3. Replace order items with new items (trong transaction)
+      const newTotal = await withTransaction(async (query) => {
+        await query('DELETE FROM order_items WHERE order_id = ?', [id]);
 
-      let newTotal = 0;
-      for (const item of items) {
-        const itemId = `item_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const qty = item.quantity || 1;
-        const price = item.unit_price || 0;
-        newTotal += qty * price;
+        let total = 0;
+        for (const item of items) {
+          const itemId = `item_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          const qty = item.quantity || 1;
+          const price = item.unit_price || 0;
+          total += qty * price;
 
-        await db
-          .prepare(
+          await query(
             `INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, serial_number, warranty_months)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            itemId,
-            id,
-            item.product_id,
-            qty,
-            price,
-            item.serial_number || null,
-            item.warranty_months ?? 36
-          )
-          .run();
-      }
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              itemId,
+              id,
+              item.product_id,
+              qty,
+              price,
+              item.serial_number || null,
+              item.warranty_months ?? 36,
+            ]
+          );
+        }
 
-      // Re-evaluate payment status against new total
-      let newPaymentStatus = currentOrder.payment_status;
-      if (currentOrder.paid_amount >= newTotal && newTotal > 0) {
-        newPaymentStatus = 'full';
-      } else if (currentOrder.paid_amount > 0) {
-        newPaymentStatus = 'partial';
-      } else {
-        newPaymentStatus = 'unpaid';
-      }
+        // Re-evaluate payment status against new total
+        let newPaymentStatus = currentOrder.payment_status;
+        if (currentOrder.paid_amount >= total && total > 0) {
+          newPaymentStatus = 'full';
+        } else if (currentOrder.paid_amount > 0) {
+          newPaymentStatus = 'partial';
+        } else {
+          newPaymentStatus = 'unpaid';
+        }
 
-      // Update orders table
-      const tagsJson = tags ? JSON.stringify(tags) : currentOrder.tags;
-      addChange('Tags quy trình', currentOrder.tags, tagsJson);
-      await db
-        .prepare(
+        // Update orders table
+        const tagsJson = tags ? JSON.stringify(tags) : currentOrder.tags;
+        addChange('Tags quy trình', currentOrder.tags, tagsJson);
+        await query(
           `UPDATE orders
            SET customer_name = COALESCE(?, customer_name),
                customer_phone = COALESCE(?, customer_phone),
@@ -230,27 +273,47 @@ export async function PUT(
                payment_status = ?,
                total_amount = ?,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`
-        )
-        .bind(
-          customer_name || null,
-          customer_phone || null,
-          customer_email === undefined ? null : customer_email,
-          customer_address === undefined ? null : customer_address,
-          tagsJson,
-          note === undefined ? null : note,
-          newStatus,
-          newPaymentStatus,
-          newTotal,
-          id
-        )
-        .run();
+           WHERE id = ?`,
+          [
+            customer_name || null,
+            customer_phone || null,
+            customer_email === undefined ? null : customer_email,
+            customer_address === undefined ? null : customer_address,
+            tagsJson,
+            note === undefined ? null : note,
+            newStatus,
+            newPaymentStatus,
+            total,
+            id,
+          ]
+        );
+
+        // Lịch sử rollback (ghi sau cập nhật đơn, trong cùng transaction).
+        if (rollbackHistory) {
+          await query(
+            `INSERT INTO order_status_history (
+              id, order_id, status, changed_by_user_id, note, snapshot_serials, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            [
+              rollbackHistory.id,
+              id,
+              newStatus,
+              currentUser.id,
+              rollbackHistory.note,
+              rollbackHistory.snapshotSerials,
+            ]
+          );
+        }
+
+        return total;
+      });
+      void newTotal;
     } else {
       // Items not changed, only customer info or tags updated
-      const tagsJson = tags ? JSON.stringify(tags) : currentOrder.tags;
-      addChange('Tags quy trình', currentOrder.tags, tagsJson);
-      await db
-        .prepare(
+      await withTransaction(async (query) => {
+        const tagsJson = tags ? JSON.stringify(tags) : currentOrder.tags;
+        addChange('Tags quy trình', currentOrder.tags, tagsJson);
+        await query(
           `UPDATE orders
            SET customer_name = COALESCE(?, customer_name),
                customer_phone = COALESCE(?, customer_phone),
@@ -259,18 +322,18 @@ export async function PUT(
                tags = ?,
                note = COALESCE(?, note),
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`
-        )
-        .bind(
-          customer_name || null,
-          customer_phone || null,
-          customer_email === undefined ? null : customer_email,
-          customer_address === undefined ? null : customer_address,
-          tagsJson,
-          note === undefined ? null : note,
-          id
-        )
-        .run();
+           WHERE id = ?`,
+          [
+            customer_name || null,
+            customer_phone || null,
+            customer_email === undefined ? null : customer_email,
+            customer_address === undefined ? null : customer_address,
+            tagsJson,
+            note === undefined ? null : note,
+            id,
+          ]
+        );
+      });
     }
 
     const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -295,7 +358,7 @@ export async function PUT(
       targetUserId: null,
       targetName: currentOrder.invoice_no,
       detail: { order_id: id, rollback: didRollback, changes: changes.slice(0, 10) },
-      ip: request.headers.get('x-forwarded-for'),
+      ip: getClientIp(request),
     });
 
     // Tag người tạo đơn khi bị sửa (trừ người tự sửa); rollback thì tag thêm kho
@@ -321,7 +384,7 @@ export async function PUT(
         ? 'Đã sửa đơn hàng và tự động Rollback trạng thái về Chờ xuất kho (kho_pending)!'
         : 'Cập nhật thông tin đơn hàng thành công!',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating order:', error);
     return NextResponse.json(
       { error: 'Lỗi cập nhật đơn hàng' },
@@ -349,7 +412,7 @@ export async function DELETE(
     const currentOrder = await db
       .prepare('SELECT id, invoice_no, status, sales_user_id FROM orders WHERE id = ?')
       .bind(id)
-      .first<any>();
+      .first<OrderEditRow>();
 
     if (!currentOrder) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
@@ -374,22 +437,35 @@ export async function DELETE(
     const { searchParams } = new URL(request.url);
     const reason = (searchParams.get('reason') || 'Kinh doanh hủy đơn theo yêu cầu').slice(0, 500);
 
-    // Hủy đơn: chuyển cancelled + dọn shipment chờ (tránh kẹt shipper) trong 1 luồng
-    await db
-      .prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status != ?')
-      .bind('cancelled', id, 'completed')
-      .run();
-    await db.prepare('DELETE FROM shipments WHERE order_id = ?').bind(id).run();
-
-    // Insert history
+    // Hủy đơn: chuyển cancelled + dọn shipment chờ (tránh kẹt shipper) trong 1 transaction.
+    // `WHERE status != 'completed'` chống hủy đơn đã hoàn tất; nếu không có dòng nào
+    // bị ảnh hưởng -> rollback toàn bộ (không xoá shipment, không ghi lịch sử).
     const historyId = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    await db
-      .prepare(
+    const cancelled = await withTransaction(async (query) => {
+      const updateResult = await query(
+        'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status != ?',
+        ['cancelled', id, 'completed']
+      );
+      if (affectedRows(updateResult) === 0) {
+        return false;
+      }
+
+      await query('DELETE FROM shipments WHERE order_id = ?', [id]);
+
+      await query(
         `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
-         VALUES (?, ?, ?, ?, ?)`
-      )
-      .bind(historyId, id, 'cancelled', currentUser.id, `Hủy đơn: ${reason}`)
-      .run();
+         VALUES (?, ?, ?, ?, ?)`,
+        [historyId, id, 'cancelled', currentUser.id, `Hủy đơn: ${reason}`]
+      );
+      return true;
+    });
+
+    if (!cancelled) {
+      return NextResponse.json(
+        { error: 'Trạng thái đơn đã thay đổi, vui lòng tải lại' },
+        { status: 409 }
+      );
+    }
 
     await writeAuditLog({
       action: 'order_cancelled',
@@ -397,7 +473,7 @@ export async function DELETE(
       targetUserId: null,
       targetName: currentOrder.invoice_no,
       detail: { order_id: id, reason },
-      ip: request.headers.get('x-forwarded-for'),
+      ip: getClientIp(request),
     });
 
     // Tag người tạo đơn khi đơn bị hủy (trừ người tự hủy)
@@ -415,7 +491,7 @@ export async function DELETE(
       success: true,
       message: `Đơn hàng ${currentOrder.invoice_no} đã được hủy thành công!`,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error cancelling order:', error);
     return NextResponse.json(
       { error: 'Lỗi hủy đơn hàng' },

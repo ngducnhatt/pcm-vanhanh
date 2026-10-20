@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { logServerError, toSafeError } from '@/lib/api-error';
+import { getDb, withTransaction, affectedRows } from '@/lib/db';
 import { requireUser, writeAuditLog } from '@/lib/auth';
 import { notifyOrderEvent } from '@/lib/notifications';
 import { statusFromError } from '@/lib/permissions';
@@ -9,7 +10,18 @@ import {
   getNextStatusAfterKithuatDone,
   shouldCompleteOrder,
 } from '@/lib/state-machine';
-import { OrderStatus } from '@/lib/types';
+import { OrderStatus, PaymentStatus } from '@/lib/types';
+import { getClientIp } from '@/lib/request-ip';
+
+interface OrderStatusRow {
+  id: string;
+  invoice_no: string;
+  status: OrderStatus;
+  payment_status: PaymentStatus;
+  tags: string | null;
+  sales_user_id: string;
+}
+
 
 export async function POST(
   request: NextRequest,
@@ -36,7 +48,7 @@ export async function POST(
     const orderRow = await db
       .prepare('SELECT id, invoice_no, status, payment_status, tags, sales_user_id FROM orders WHERE id = ?')
       .bind(id)
-      .first<any>();
+      .first<OrderStatusRow>();
 
     if (!orderRow) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
@@ -52,6 +64,12 @@ export async function POST(
     const currentStatus: OrderStatus = orderRow.status;
     let nextStatus: OrderStatus = currentStatus;
     let defaultNote = (typeof note === 'string' ? note : '').slice(0, 1000);
+    /**
+     * Các bước trung gian cần ghi lịch sử TRƯỚC khi chuyển trạng thái
+     * (ví dụ kithuat_done -> ship_pending). Ghi sau khi update sẽ làm lịch sử
+     * sai thứ tự thời gian.
+     */
+    const intermediateHistory: Array<{ status: OrderStatus; note: string }> = [];
 
     // Handle standard role actions
     if (action === 'receive_kho') {
@@ -69,22 +87,10 @@ export async function POST(
       }
       // Record kithuat_done, then route to next state (baohanh_pending or ship_pending)
       const afterKithuat = getNextStatusAfterKithuatDone(parsedTags);
-      
-      // Log kithuat_done first
-      const histId1 = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      await db
-        .prepare(
-          `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
-           VALUES (?, ?, ?, ?, ?)`
-        )
-        .bind(
-          histId1,
-          id,
-          'kithuat_done',
-          currentUser.id,
-          defaultNote || 'Kỹ thuật viên đã kiểm tra, lắp ráp, cài đặt và test máy thành công'
-        )
-        .run();
+      intermediateHistory.push({
+        status: 'kithuat_done',
+        note: defaultNote || 'Kỹ thuật viên đã kiểm tra, lắp ráp, cài đặt và test máy thành công',
+      });
 
       nextStatus = afterKithuat;
       defaultNote =
@@ -99,22 +105,10 @@ export async function POST(
         );
       }
       const afterBaohanh = getNextStatusAfterBaohanhDone();
-
-      // Log baohanh_done first
-      const histId1 = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      await db
-        .prepare(
-          `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
-           VALUES (?, ?, ?, ?, ?)`
-        )
-        .bind(
-          histId1,
-          id,
-          'baohanh_done',
-          currentUser.id,
-          defaultNote || 'Bảo hành đã kiểm tra/xử lý/đổi mới linh kiện hoàn tất'
-        )
-        .run();
+      intermediateHistory.push({
+        status: 'baohanh_done',
+        note: defaultNote || 'Bảo hành đã kiểm tra/xử lý/đổi mới linh kiện hoàn tất',
+      });
 
       nextStatus = afterBaohanh;
       defaultNote = 'Chuyển sang bộ phận Giao Hàng (bảo hành hoàn tất)';
@@ -139,33 +133,57 @@ export async function POST(
       isAutoCompleted = true;
     }
 
-    // Update order status (atomic: chống double-submit đồng thời)
-    const updateResult: any = await db
-      .prepare(
-        'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?'
-      )
-      .bind(nextStatus, id, currentStatus)
-      .run();
-    if ((updateResult?.meta?.changes ?? 1) === 0) {
-      return NextResponse.json(
-        { error: 'Trạng thái đơn đã thay đổi, vui lòng tải lại' },
-        { status: 409 }
-      );
-    }
-
     // Log the resulting status history
     const histId = `hist_${Date.now() + 2}_${Math.random().toString(36).substring(2, 7)}`;
     const finalNote = isAutoCompleted
       ? `${defaultNote} — Đơn đã giao xong và thanh toán đủ 100%, hệ thống tự động hoàn tất đơn (completed)`
       : defaultNote || `Chuyển trạng thái sang ${nextStatus}`;
 
-    await db
-      .prepare(
+    /**
+     * Ghi lịch sử + đổi trạng thái trong MỘT transaction.
+     *
+     * - Lịch sử trung gian (kithuat_done / baohanh_done) được ghi TRƯỚC khi update
+     *   trạng thái để giữ đúng thứ tự thời gian.
+     * - `UPDATE ... WHERE status = currentStatus` chống double-submit đồng thời.
+     *   Nếu không có dòng nào bị ảnh hưởng -> rollback toàn bộ, trả 409.
+     */
+    const statusChanged = await withTransaction(async (query) => {
+      for (const step of intermediateHistory) {
+        await query(
+          `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
+           VALUES (?, ?, ?, ?, ?)`,
+          [
+            `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            id,
+            step.status,
+            currentUser.id,
+            step.note,
+          ]
+        );
+      }
+
+      const updateResult = await query(
+        'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = ?',
+        [nextStatus, id, currentStatus]
+      );
+      if (affectedRows(updateResult) === 0) {
+        return false;
+      }
+
+      await query(
         `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
-         VALUES (?, ?, ?, ?, ?)`
-      )
-      .bind(histId, id, nextStatus, currentUser.id, finalNote)
-      .run();
+         VALUES (?, ?, ?, ?, ?)`,
+        [histId, id, nextStatus, currentUser.id, finalNote]
+      );
+      return true;
+    });
+
+    if (!statusChanged) {
+      return NextResponse.json(
+        { error: 'Trạng thái đơn đã thay đổi, vui lòng tải lại' },
+        { status: 409 }
+      );
+    }
 
     await writeAuditLog({
       action: 'order_status_changed',
@@ -173,7 +191,7 @@ export async function POST(
       targetUserId: null,
       targetName: orderRow.invoice_no,
       detail: { order_id: id, action, from: currentStatus, to: nextStatus },
-      ip: request.headers.get('x-forwarded-for'),
+      ip: getClientIp(request),
     });
 
     // Tag người tạo đơn + nhóm phụ trách trạng thái mới (trừ người vừa làm)
@@ -202,11 +220,9 @@ export async function POST(
       isAutoCompleted,
       message: `Đã cập nhật trạng thái đơn sang: ${nextStatus}`,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error changing order status:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi cập nhật trạng thái đơn' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi cập nhật trạng thái đơn');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }

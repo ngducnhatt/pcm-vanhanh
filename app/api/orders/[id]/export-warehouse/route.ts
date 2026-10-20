@@ -1,9 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { logServerError, toSafeError } from '@/lib/api-error';
+import { getDb, withTransaction, affectedRows } from '@/lib/db';
 import { requirePermission } from '@/lib/auth';
 import { notifyOrderEvent } from '@/lib/notifications';
 import { statusFromError } from '@/lib/permissions';
 import { getNextStatusAfterKhoDone } from '@/lib/state-machine';
+import { OrderStatus } from '@/lib/types';
+
+interface ExportOrderRow {
+  id: string;
+  invoice_no: string;
+  status: OrderStatus;
+  tags: string | null;
+  sales_user_id: string;
+}
+
+interface ExportItemRow {
+  id: string;
+  product_name: string | null;
+  sku: string | null;
+}
+
+interface ExportItemInput {
+  id: string;
+  serial_number: string;
+}
+
 
 export async function POST(
   request: NextRequest,
@@ -44,7 +66,7 @@ export async function POST(
     const orderRow = await db
       .prepare('SELECT id, invoice_no, status, tags, sales_user_id FROM orders WHERE id = ?')
       .bind(id)
-      .first<any>();
+      .first<ExportOrderRow>();
 
     if (!orderRow) {
       return NextResponse.json({ error: 'Không tìm thấy đơn hàng' }, { status: 404 });
@@ -66,34 +88,26 @@ export async function POST(
            WHERE oi.order_id = ?`
         )
         .bind(id)
-        .all<any>()
+        .all<ExportItemRow>()
     ).results || [];
-    const orderItemById = new Map(orderItems.map((item: any) => [item.id, item]));
-    const submittedIds = items.map((item: any) => item.id);
+    const orderItemById = new Map(orderItems.map((item) => [item.id, item]));
+    const submittedIds = items.map((item: ExportItemInput) => item.id);
     if (
       submittedIds.length !== orderItems.length ||
       new Set(submittedIds).size !== submittedIds.length ||
-      submittedIds.some((itemId: string) => !orderItemById.has(itemId))
+      submittedIds.some((itemId) => !orderItemById.has(itemId))
     ) {
       return NextResponse.json(
         { error: 'Danh sách linh kiện xuất kho không khớp với đơn hàng' },
         { status: 400 }
       );
     }
-    const serials = items.map((item: any) => item.serial_number.trim().toLowerCase());
+    const serials = items.map((item: ExportItemInput) => item.serial_number.trim().toLowerCase());
     if (new Set(serials).size !== serials.length) {
       return NextResponse.json(
         { error: 'Mỗi linh kiện phải có một mã serial riêng biệt' },
         { status: 400 }
       );
-    }
-
-    // Update serial number for each item
-    for (const item of items) {
-      await db
-        .prepare('UPDATE order_items SET serial_number = ? WHERE id = ? AND order_id = ?')
-        .bind(item.serial_number.trim(), item.id, id)
-        .run();
     }
 
     let parsedTags: string[] = [];
@@ -106,13 +120,7 @@ export async function POST(
     // Determine next state
     const nextStatus = getNextStatusAfterKhoDone(parsedTags);
 
-    // Update order status
-    await db
-      .prepare('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .bind(nextStatus, id)
-      .run();
-
-    const serialLog = items.map((item: any) => {
+    const serialLog = items.map((item: ExportItemInput) => {
       const orderItem = orderItemById.get(item.id);
       return `${orderItem?.product_name || orderItem?.sku || item.id}: ${item.serial_number.trim()}`;
     }).join('; ');
@@ -123,20 +131,6 @@ export async function POST(
 
     // 1. Log kho_done history
     const histId1 = `hist_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    await db
-      .prepare(
-        `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
-         VALUES (?, ?, ?, ?, ?)`
-      )
-      .bind(
-        histId1,
-        id,
-        'kho_done',
-        currentUser.id,
-        exportNote
-      )
-      .run();
-
     // 2. Log transition to next status history
     const histId2 = `hist_${Date.now() + 1}_${Math.random().toString(36).substring(2, 7)}`;
     let transitionReason = '';
@@ -148,13 +142,51 @@ export async function POST(
       transitionReason = 'Tự động chuyển hàng đợi Giao Hàng (không yêu cầu kỹ thuật/bảo hành)';
     }
 
-    await db
-      .prepare(
+    /**
+     * Gắn serial + đổi trạng thái + ghi lịch sử trong MỘT transaction.
+     *
+     * `UPDATE orders ... WHERE id = ? AND status IN ('kho_pending','new')` chống
+     * double-submit: nếu đơn đã chuyển trạng thái bởi request khác thì không có
+     * dòng nào bị ảnh hưởng -> rollback toàn bộ (serial cũng không bị ghi dở).
+     */
+    const exported = await withTransaction(async (query) => {
+      for (const item of items) {
+        await query('UPDATE order_items SET serial_number = ? WHERE id = ? AND order_id = ?', [
+          item.serial_number.trim(),
+          item.id,
+          id,
+        ]);
+      }
+
+      const statusUpdate = await query(
+        `UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND status IN ('kho_pending', 'new')`,
+        [nextStatus, id]
+      );
+      if (affectedRows(statusUpdate) === 0) {
+        return false;
+      }
+
+      await query(
         `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
-         VALUES (?, ?, ?, ?, ?)`
-      )
-      .bind(histId2, id, nextStatus, currentUser.id, transitionReason)
-      .run();
+         VALUES (?, ?, ?, ?, ?)`,
+        [histId1, id, 'kho_done', currentUser.id, exportNote]
+      );
+
+      await query(
+        `INSERT INTO order_status_history (id, order_id, status, changed_by_user_id, note)
+         VALUES (?, ?, ?, ?, ?)`,
+        [histId2, id, nextStatus, currentUser.id, transitionReason]
+      );
+      return true;
+    });
+
+    if (!exported) {
+      return NextResponse.json(
+        { error: 'Trạng thái đơn đã thay đổi, vui lòng tải lại' },
+        { status: 409 }
+      );
+    }
 
     // Tag người tạo đơn + nhóm tiếp theo (kỹ thuật/bảo hành/giao hàng)
     await notifyOrderEvent({
@@ -174,11 +206,9 @@ export async function POST(
       nextStatus,
       message: `Đã xuất kho thành công! Trạng thái đơn chuyển sang: ${nextStatus}`,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error exporting warehouse order:', error);
-    return NextResponse.json(
-      { error: error.message || 'Lỗi xử lý xuất kho' },
-      { status: statusFromError(error) }
-    );
+    const safe = toSafeError(error, 'Lỗi xử lý xuất kho');
+    return NextResponse.json({ error: safe.message }, { status: safe.status });
   }
 }
