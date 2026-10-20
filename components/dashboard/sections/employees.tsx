@@ -7,7 +7,6 @@ import {
   Check,
   Copy,
   Loader2,
-  Lock,
   Pencil,
   Plus,
   RefreshCw,
@@ -46,8 +45,6 @@ import {
   roleChip,
   roleLabel,
   SURFACE_CARD,
-  SECTION_TITLE,
-  SECTION_SUBTITLE,
   TONE_SURFACE,
   type Tone,
 } from "@/lib/ui";
@@ -357,16 +354,8 @@ export function EmployeesSection() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className={SECTION_TITLE}>Nhân viên &amp; Vai trò</h2>
-          <p className={SECTION_SUBTITLE}>
-            {isAdmin
-              ? "Danh sách nhân viên, tài khoản đăng nhập và quyền truy cập theo vai trò."
-              : "Danh sách nhân viên và vai trò trong cửa hàng."}
-          </p>
-        </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadAll} disabled={isLoading}>
+          <Button variant="secondary" size="sm" onClick={loadAll} disabled={isLoading}>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Làm mới
           </Button>
@@ -441,20 +430,18 @@ export function EmployeesSection() {
               const RoleIcon = ROLE_META[role].icon;
               const selected = roleFilter === role;
               return (
-                <button
+                <Button
                   key={role}
+                  type="button"
+                  variant="ghost"
+                  size="xs"
                   onClick={() => setRoleFilter((current) => (current === role ? "all" : role))}
                   aria-pressed={selected}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
-                    selected
-                      ? "bg-accent/15 text-accent ring-2 ring-current"
-                      : roleChip(role)
-                  )}
+                  className={cn(roleChip(role), selected && "ring-2 ring-current")}
                 >
                   <RoleIcon className="h-3 w-3" />
                   {label} · {count}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -566,13 +553,13 @@ export function EmployeesSection() {
                               </Button>
                             )}
                             <Button
-                              variant="ghost"
+                              variant="danger-soft"
                               size="icon-sm"
                               title="Xoá hẳn tài khoản"
                               onClick={() => deleteAccount(account)}
                               disabled={isSelf || busyId === account.id}
                             >
-                              <Trash2 className="h-3.5 w-3.5 text-danger" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         </td>
@@ -583,14 +570,6 @@ export function EmployeesSection() {
               </tbody>
             </table>
           </div>
-
-          {isAdmin && (
-            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Lock className="h-3 w-3" />
-              Bạn không thể tự xoá hoặc tự hạ quyền tài khoản của chính mình. Hệ thống luôn giữ ít nhất
-              1 tài khoản Admin hoạt động.
-            </p>
-          )}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl bg-card">
@@ -695,9 +674,11 @@ export function EmployeesSection() {
                     {ROLES.map((role) => {
                       const isSelected = form.roles.includes(role);
                       return (
-                        <button
+                        <Button
                           key={role}
                           type="button"
+                          variant={isSelected ? "default" : "secondary"}
+                          size="xs"
                           onClick={() => {
                             setForm((prev) => ({
                               ...prev,
@@ -706,15 +687,10 @@ export function EmployeesSection() {
                                 : [...prev.roles, role],
                             }));
                           }}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
-                            isSelected
-                              ? "bg-accent text-accent-foreground ring-2 ring-offset-1 ring-accent/50"
-                              : roleChip(role)
-                          )}
+                          aria-pressed={isSelected}
                         >
                           {ROLE_META[role].label}
-                        </button>
+                        </Button>
                       );
                     })}
                   </div>
@@ -761,7 +737,7 @@ export function EmployeesSection() {
               )}
 
               <DialogFooter>
-                <Button type="button" variant="ghost" onClick={() => setIsFormOpen(false)}>
+                <Button type="button" variant="secondary" onClick={() => setIsFormOpen(false)}>
                   Huỷ
                 </Button>
                 <Button type="submit" disabled={isSaving}>
@@ -844,15 +820,16 @@ function TabButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
+    <Button
+      type="button"
+      variant={active ? "accent-soft" : "ghost"}
+      size="sm"
       onClick={onClick}
-      className={cn(
-        "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-        active ? "bg-accent/15 text-accent" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-      )}
+      aria-pressed={active}
+      className="gap-2"
     >
       <Icon className="h-3.5 w-3.5" />
       {children}
-    </button>
+    </Button>
   );
 }

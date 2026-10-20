@@ -65,7 +65,12 @@ async function main() {
   await closeDb();
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error('Could not create the initial admin account:', error);
-  process.exitCode = 1;
+  try {
+    await closeDb();
+  } catch {
+    /* ignore */
+  }
+  process.exit(1);
 });

@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ChevronDown, Download, Filter, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   FIELD_BASE,
-  SECTION_SUBTITLE,
   SECTION_TITLE,
   SURFACE_CARD,
   TONE_SURFACE,
@@ -57,19 +57,25 @@ export function ReportsSection() {
       <div className="flex flex-col gap-4 pb-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className={SECTION_TITLE}>Giao dịch</h2>
-          <p className={SECTION_SUBTITLE}>Theo dõi và quản lý toàn bộ giao dịch thu, chi và hoàn tiền</p>
         </div>
-        <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent/90">
+        <Button type="button" size="sm" className="gap-2">
           <Download className="h-4 w-4" /> Xuất báo cáo
-        </button>
+        </Button>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           {filters.map((filter) => (
-            <button key={filter} onClick={() => setActiveFilter(filter)} className={cn("rounded-lg px-3 py-2 text-sm font-medium transition-colors", activeFilter === filter ? "bg-accent text-accent-foreground" : "bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground")}>
+            <Button
+              key={filter}
+              type="button"
+              variant={activeFilter === filter ? "default" : "secondary"}
+              size="sm"
+              onClick={() => setActiveFilter(filter)}
+              aria-pressed={activeFilter === filter}
+            >
               {filter}
-            </button>
+            </Button>
           ))}
         </div>
         <div className="flex items-center gap-2">
@@ -77,14 +83,18 @@ export function ReportsSection() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm mã hoặc khách hàng..." className={cn(FIELD_BASE, "bg-card pl-9 sm:w-64")} />
           </div>
-          <button aria-label="Bộ lọc nâng cao" className="inline-flex h-9 items-center gap-2 rounded-lg bg-secondary/30 bg-card px-3 text-sm text-muted-foreground hover:text-foreground"><Filter className="h-4 w-4" /> Lọc</button>
+          <Button type="button" variant="secondary" size="sm" aria-label="Bộ lọc nâng cao">
+            <Filter className="h-4 w-4" /> Lọc
+          </Button>
         </div>
       </div>
 
       <div className={cn(SURFACE_CARD, "overflow-hidden")}>
         <div className="flex items-center justify-between px-5 py-4">
           <div><h3 className="font-semibold text-foreground">Danh sách giao dịch</h3><p className="mt-1 text-xs text-muted-foreground">{filteredTransactions.length} giao dịch được hiển thị</p></div>
-          <button className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">Mới nhất <ChevronDown className="h-4 w-4" /></button>
+          <Button type="button" variant="ghost" size="xs">
+            Mới nhất <ChevronDown className="h-4 w-4" />
+          </Button>
         </div>
         <div className="divide-y divide-border/50">
           {filteredTransactions.map((transaction) => {

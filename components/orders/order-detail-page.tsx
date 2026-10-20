@@ -8,6 +8,7 @@ import type { Order } from "@/lib/types";
 import { PAYMENT_STATUS_LABELS, STATUS_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { chip, SURFACE_CARD } from "@/lib/ui";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { OrderDetailTabs } from "@/components/orders/order-detail-tabs";
 
 /** Link duy nhất của đơn hàng (nhân viên xem full, khách nhập SĐT). */
@@ -87,7 +88,7 @@ export function OrderDetailPage({ invoiceNo, initialOrder }: { invoiceNo: string
       <div className={cn(SURFACE_CARD, "mx-auto max-w-lg p-8 text-center")}>
         <p className="mt-1 text-sm text-muted-foreground">Mã hóa đơn có thể sai hoặc đơn đã bị xóa.</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">Không tìm thấy đơn hàng {code}</h2>
-        <Link href="/don-hang" className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground">
+        <Link href="/don-hang" className={cn(buttonVariants({ size: "sm" }), "mt-4")}>
           <ArrowLeft className="h-4 w-4" /> Về Trung tâm đơn hàng
         </Link>
       </div>
@@ -99,7 +100,7 @@ export function OrderDetailPage({ invoiceNo, initialOrder }: { invoiceNo: string
       {/* Header trang */}
       <div className={cn(SURFACE_CARD, "flex flex-wrap items-center justify-between gap-3 p-4")}>
         <div className="flex items-center gap-3">
-          <Link href="/don-hang" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Về Trung tâm đơn hàng">
+          <Link href="/don-hang" className={buttonVariants({ variant: "ghost", size: "icon-sm" })} title="Về Trung tâm đơn hàng" aria-label="Về Trung tâm đơn hàng">
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div>
@@ -118,20 +119,19 @@ export function OrderDetailPage({ invoiceNo, initialOrder }: { invoiceNo: string
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
             onClick={handleCopy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-xs font-medium text-foreground hover:bg-secondary/80"
             title="Sao chép link duy nhất của đơn này (gửi được cho khách, khách nhập SĐT để xem)"
           >
             {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
             {copied ? "Đã sao chép" : "Sao chép link"}
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-xs font-medium text-foreground hover:bg-secondary/80"
-          >
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => window.print()}>
             <Printer className="h-3.5 w-3.5" /> In
-          </button>
+          </Button>
         </div>
       </div>
 

@@ -3,7 +3,7 @@
  * Chỉ chạy trên MySQL/MariaDB database riêng có tên kết thúc bằng `_test`.
  */
 import dotenv from 'dotenv';
-import { getDb } from '../lib/db';
+import { closeDb, getDb } from '../lib/db';
 import { hashPassword, verifyPassword, generateToken, hashToken } from '../lib/crypto';
 import {
   authenticate,
@@ -56,6 +56,11 @@ async function main() {
   const db = getDb();
   const testUserId = `usr_${TEST_USERNAME}`;
 
+  // Dọn dữ liệu test còn sót (kể cả khi lần chạy trước bị dừng giữa chừng).
+  // Xoá bảng con trước để không phụ thuộc FK/cascade của database cũ.
+  await db.prepare("DELETE FROM user_roles WHERE user_id LIKE 'usr_test_%'").run();
+  await db.prepare("DELETE FROM sessions WHERE user_id LIKE 'usr_test_%'").run();
+  await db.prepare("DELETE FROM notifications WHERE user_id LIKE 'usr_test_%'").run();
   await db.prepare("DELETE FROM users WHERE id LIKE 'usr_test_%'").run();
   const seedPasswordHash = await hashPassword(TEST_PASSWORD);
   const seedUsernames: Record<Role, string> = {
@@ -295,7 +300,11 @@ async function main() {
   });
 
   // Dọn dẹp
+  await db.prepare("DELETE FROM user_roles WHERE user_id LIKE 'usr_test_%'").run();
+  await db.prepare("DELETE FROM sessions WHERE user_id LIKE 'usr_test_%'").run();
+  await db.prepare("DELETE FROM notifications WHERE user_id LIKE 'usr_test_%'").run();
   await db.prepare("DELETE FROM users WHERE id LIKE 'usr_test_%'").run();
+  await closeDb();
 
   console.log('\n====================================================');
   if (failures === 0) {
@@ -308,7 +317,12 @@ async function main() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error('Authentication tests could not run:', error);
-  process.exitCode = 1;
+  try {
+    await closeDb();
+  } catch {
+    /* ignore */
+  }
+  process.exit(1);
 });

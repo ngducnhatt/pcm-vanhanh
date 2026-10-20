@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth-context";
+import { Button } from "@/components/ui/button";
 import { operationNavFor, primaryNavFor } from "@/lib/nav";
 import { asRole, ROLE_TEXT_STYLE } from "@/lib/ui";
 import { ChevronLeft, ChevronRight, Cpu } from "lucide-react";
@@ -122,9 +122,12 @@ export function Sidebar({
 
       {/* Collapse button */}
       <div className="p-3">
-        <button
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => onCollapsedChange(!collapsed)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all duration-200"
+          className="w-full justify-center"
         >
           {collapsed ? (
             <ChevronRight className="w-5 h-5" />
@@ -134,7 +137,7 @@ export function Sidebar({
               <span>Thu gọn</span>
             </>
           )}
-        </button>
+        </Button>
       </div>
     </aside>
   );

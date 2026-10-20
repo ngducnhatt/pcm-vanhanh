@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Order, Product } from "@/lib/types";
 import { requiresRollbackToKho } from "@/lib/state-machine";
 import { AlertTriangle, Edit3, Plus, Search, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { HoDonForm, HoDonLine } from "@/components/orders/hoadon-form";
 
 interface EditOrderModalProps {
@@ -311,19 +312,17 @@ export function EditOrderModal({ order, isOpen, onClose, onSuccess }: EditOrderM
                 { id: "ship", label: "Ship" },
                 { id: "thu_cu", label: "Thu cũ đổi mới" },
               ].map((tag) => (
-                <button
+                <Button
                   key={tag.id}
                   type="button"
+                  variant={tags.includes(tag.id) ? "paper-primary" : "paper"}
+                  size="xs"
                   onClick={() => toggleTag(tag.id)}
                   aria-pressed={tags.includes(tag.id)}
-                  className={`rounded border px-2 py-1 ${
-                    tags.includes(tag.id)
-                      ? "border-blue-700 bg-blue-50 font-semibold"
-                      : "border-slate-300"
-                  }`}
+                  className={tags.includes(tag.id) ? "font-semibold" : undefined}
                 >
                   {tag.label}
-                </button>
+                </Button>
               ))}
             </div>
             <label className="flex flex-col gap-1">
@@ -342,18 +341,16 @@ export function EditOrderModal({ order, isOpen, onClose, onSuccess }: EditOrderM
         </div>
 
         <DialogFooter className="shrink-0 flex-row flex-wrap justify-between border-t border-slate-300 bg-white px-3 py-2 sm:px-5">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-slate-300 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50"
-          >
+          <Button type="button" variant="paper" size="sm" onClick={onClose}>
             Hủy
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="paper-primary"
+            size="sm"
             disabled={isSubmitting}
             onClick={handleSubmit}
-            className="flex items-center gap-2 rounded bg-blue-700 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+            className="font-semibold"
           >
             <ShoppingCart className="h-4 w-4" />
             {isSubmitting
@@ -361,7 +358,7 @@ export function EditOrderModal({ order, isOpen, onClose, onSuccess }: EditOrderM
               : isRollbackCandidate
                 ? "Lưu thay đổi & chuyển lại Kho"
                 : "Lưu thay đổi"}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

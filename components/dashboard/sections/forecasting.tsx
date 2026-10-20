@@ -21,8 +21,6 @@ import {
   TrendingUp,
   TrendingDown,
   Target,
-  Calendar,
-  DollarSign,
   AlertTriangle,
   CheckCircle2,
   ArrowRight,
@@ -38,7 +36,6 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  Cell,
   Legend,
 } from "recharts";
 
@@ -132,8 +129,8 @@ export function ForecastingSection() {
               <SelectItem value="annual">Hàng năm</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm">
-            <RefreshCw className="w-4 h-4 mr-2" />
+          <Button variant="secondary" size="sm">
+            <RefreshCw className="w-4 h-4" />
             Làm mới
           </Button>
         </div>
@@ -436,12 +433,11 @@ export function ForecastingSection() {
                 </div>
                 <div className="ml-5 mt-3">
                   <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-muted-foreground hover:text-foreground p-0 h-auto"
+                    variant="link"
+                    size="xs"
                   >
                     Xem phương án giảm thiểu
-                    <ArrowRight className="w-3 h-3 ml-1" />
+                    <ArrowRight className="w-3 h-3" />
                   </Button>
                 </div>
               </div>

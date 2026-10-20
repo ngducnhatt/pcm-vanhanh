@@ -1,7 +1,8 @@
 "use client";
 
-import React, { ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Order } from "@/lib/types";
+import { Button } from "@/components/ui/button";
 
 export interface HoDonLine {
   id: string;
@@ -241,14 +242,16 @@ export function HoDonForm({
                         .join(" · ")}
                       </span>
                       {isEditable && (
-                        <button
+                        <Button
                           type="button"
+                          variant="ghost"
+                          size="icon-xs"
                           onClick={() => onRemoveItem?.(item.id)}
                           aria-label={`Xóa ${item.name}`}
-                          className="shrink-0 px-1 text-sm font-bold text-slate-500 hover:text-red-600"
+                          className="shrink-0 text-slate-500 hover:bg-slate-100 hover:text-red-600"
                         >
                           ×
-                        </button>
+                        </Button>
                       )}
                     </div>
                   )}

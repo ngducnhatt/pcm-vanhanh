@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Order, STATUS_LABELS, PAYMENT_STATUS_LABELS } from "@/lib/types";
@@ -10,6 +10,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { chip } from "@/lib/ui";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { copyOrderLink, orderHref } from "@/components/orders/order-detail-page";
 import { OrderDetailTabs } from "@/components/orders/order-detail-tabs";
 
@@ -82,26 +83,30 @@ export function OrderDetailsModal({
 
             <div className="flex flex-wrap items-center gap-2">
               {onOpenPrint && order && (
-                <button
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
                   onClick={() => onOpenPrint(order)}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-secondary hover:bg-secondary/80 text-foreground flex items-center gap-1.5 cursor-pointer"
                 >
                   <FileText className="w-3.5 h-3.5 text-accent" /> In hóa đơn
-                </button>
+                </Button>
               )}
               {order && (
                 <>
-                  <button
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
                     onClick={() => copyOrderLink(order.invoice_no)}
-                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-secondary hover:bg-secondary/80 text-foreground flex items-center gap-1.5 cursor-pointer"
                     title={`Sao chép link duy nhất của đơn (gửi được cho khách): /don-hang/${order.invoice_no}`}
                   >
                     <Link2 className="w-3.5 h-3.5" /> Sao chép link
-                  </button>
+                  </Button>
                   <Link
                     href={orderHref(order)}
                     onClick={onClose}
-                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-secondary hover:bg-secondary/80 text-foreground flex items-center gap-1.5"
+                    className={buttonVariants({ variant: "secondary", size: "sm" })}
                     title="Mở trang riêng của đơn này"
                   >
                     <ExternalLink className="w-3.5 h-3.5" /> Trang riêng
@@ -123,13 +128,9 @@ export function OrderDetailsModal({
             </div>
 
             <DialogFooter className="pt-3 flex justify-end">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 rounded-md text-xs font-medium bg-secondary hover:bg-secondary/80 text-foreground cursor-pointer"
-              >
+              <Button type="button" variant="secondary" size="sm" onClick={onClose}>
                 Đóng
-              </button>
+              </Button>
             </DialogFooter>
           </>
         )}

@@ -273,15 +273,19 @@ export async function authenticate(
   if (!valid) {
     // Atomic: tăng counter ngay trong SQL để chống burst song song bypass lockout
     const lockUntil = new Date(now + LOCK_MINUTES * 60 * 1000).toISOString();
+    // MySQL/MariaDB evaluate SET assignments left-to-right and later
+    // expressions see the *new* value of earlier columns. Evaluate the lock
+    // condition first (on the old counter) so the account locks on the 5th
+    // failure, not the 4th.
     await db
       .prepare(
         `UPDATE users SET
-           failed_login_count = CASE WHEN failed_login_count >= ? THEN 0 ELSE failed_login_count + 1 END,
            locked_until = CASE WHEN failed_login_count + 1 >= ? THEN ? ELSE locked_until END,
+           failed_login_count = CASE WHEN failed_login_count >= ? THEN 0 ELSE failed_login_count + 1 END,
            updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
       )
-      .bind(MAX_FAILED_LOGINS - 1, MAX_FAILED_LOGINS, lockUntil, record.id)
+      .bind(MAX_FAILED_LOGINS, lockUntil, MAX_FAILED_LOGINS - 1, record.id)
       .run();
 
     const failedCount = Math.min((record.failed_login_count || 0) + 1, MAX_FAILED_LOGINS);
@@ -495,15 +499,15 @@ export interface PasswordPolicyResult {
 }
 
 /**
- * Mật khẩu tối thiểu 8 ký tự, tối đa 128 (đủ cho nhân viên, chặn 123/admin).
+ * Chính sách tối giản: chỉ chặn mật khẩu rỗng và quá 128 ký tự.
+ * Không bắt buộc độ dài tối thiểu, chữ hoa, chữ số hay ký tự đặc biệt —
+ * nhân viên có thể dùng mật khẩu ngắn (xem README §3.2).
  */
 export function checkPasswordPolicy(password: string): PasswordPolicyResult {
   const errors: string[] = [];
 
   if (!password || password.trim().length === 0) {
     errors.push('Mật khẩu không được để trống');
-  } else if (password.length < 8) {
-    errors.push('Mật khẩu phải từ 8 ký tự trở lên');
   }
   if (password.length > 128) {
     errors.push('Mật khẩu không được vượt quá 128 ký tự');

@@ -6,6 +6,7 @@ import { Bell, Loader2, Package } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { SURFACE_CARD, TONE_SURFACE, SECTION_TITLE, SECTION_SUBTITLE, chip } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
 
 interface Notif {
   id: string;
@@ -105,9 +106,9 @@ export function NotificationsPage() {
           <p className={SECTION_SUBTITLE}>Thông báo tag theo đơn hàng bạn phụ trách.</p>
         </div>
         {unread > 0 && (
-          <button onClick={markAllRead} className="rounded-lg bg-secondary/30 px-3 py-2 text-sm font-medium text-accent hover:bg-accent/10">
+          <Button type="button" variant="accent-soft" size="sm" onClick={markAllRead}>
             Đánh dấu đã đọc ({unread})
-          </button>
+          </Button>
         )}
       </div>
 

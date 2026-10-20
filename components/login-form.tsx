@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Cpu, Eye, EyeOff, Loader2, Lock, User2, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/components/auth-context";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { FIELD_BASE, LABEL_BASE, SURFACE_CARD } from "@/lib/ui";
 
@@ -92,14 +93,16 @@ export function LoginForm() {
               placeholder="••••••••"
               className={cn(FIELD_BASE, "h-10 pl-9 pr-10")}
             />
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               onClick={() => setShowPassword((visible) => !visible)}
               aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:text-foreground"
+              className="absolute right-2 top-1/2 -translate-y-1/2"
             >
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -113,18 +116,15 @@ export function LoginForm() {
           </div>
         )}
 
-        <button
+        <Button
           type="submit"
+          size="lg"
           disabled={isSubmitting}
-          className={cn(
-            "flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-foreground transition-all",
-            "hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
-            isSubmitting && "cursor-not-allowed opacity-70"
-          )}
+          className="w-full font-semibold"
         >
           {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
           {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
-        </button>
+        </Button>
 
         <p className="pt-1 text-center text-[11px] leading-relaxed text-muted-foreground/80">
           Không có tài khoản? Liên hệ quản trị viên để được cấp tài khoản.

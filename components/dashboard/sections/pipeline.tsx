@@ -16,7 +16,6 @@ import { toast } from "sonner";
 import type { Product } from "@/lib/types";
 import {
   SECTION_SUBTITLE,
-  SECTION_TITLE,
   chip,
   type Tone,
 } from "@/lib/ui";
@@ -163,14 +162,10 @@ export function PipelineSection() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className={SECTION_SUBTITLE}>Danh sách linh kiện và thiết bị trong kho</p>
-          <h1 className={SECTION_TITLE}>Kho hàng</h1>
-        </div>
         <div className="flex items-center gap-2">
           {canImport && (
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => setShowForm(!showForm)}
             >
@@ -178,7 +173,7 @@ export function PipelineSection() {
               {showForm ? "Đóng form" : "Nhập sản phẩm"}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={loadProducts} disabled={isLoading}>
+          <Button variant="secondary" size="sm" onClick={loadProducts} disabled={isLoading}>
             {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Làm mới
           </Button>
@@ -307,13 +302,9 @@ export function PipelineSection() {
           <div className="flex gap-2 overflow-x-auto pt-4">
             <Button
               size="sm"
-              variant="ghost"
+              variant={activeCategory === "all" ? "default" : "secondary"}
               onClick={() => setActiveCategory("all")}
-              className={
-                activeCategory === "all"
-                  ? "bg-accent text-accent-foreground"
-                  : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
-              }
+              aria-pressed={activeCategory === "all"}
             >
               Tất cả
             </Button>
@@ -321,13 +312,9 @@ export function PipelineSection() {
               <Button
                 key={category}
                 size="sm"
-                variant="ghost"
+                variant={activeCategory === category ? "default" : "secondary"}
                 onClick={() => setActiveCategory(category)}
-                className={
-                  activeCategory === category
-                    ? "bg-accent text-accent-foreground"
-                    : "bg-secondary/50 text-muted-foreground hover:bg-secondary"
-                }
+                aria-pressed={activeCategory === category}
               >
                 {category}
               </Button>

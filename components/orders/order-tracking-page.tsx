@@ -5,6 +5,7 @@ import { Cpu, Loader2, Lock, Phone } from "lucide-react";
 import type { Order } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { FIELD_BASE, LABEL_BASE, SURFACE_CARD } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
 import { OrderDetailPage } from "@/components/orders/order-detail-page";
 
 /**
@@ -130,14 +131,15 @@ export function OrderTrackingPage({ invoiceNo }: { invoiceNo: string }) {
               {error}
             </p>
           )}
-          <button
+          <Button
             type="submit"
+            size="lg"
             disabled={isSubmitting || !phone.trim()}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-11 w-full font-semibold"
           >
             {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
             {isSubmitting ? "Đang xác thực..." : "Xem đơn hàng của tôi"}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

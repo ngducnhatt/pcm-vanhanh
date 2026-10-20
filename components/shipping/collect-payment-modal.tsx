@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Order, PaymentMethod } from "@/lib/types";
 import { DollarSign, QrCode, Banknote, CreditCard, CheckCircle2 } from "lucide-react";
@@ -14,6 +14,7 @@ import {
   TONE_TEXT,
   TONE_WASH,
 } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
 
 interface CollectPaymentModalProps {
   order: Order | null;
@@ -117,20 +118,24 @@ export function CollectPaymentModal({
               Chọn nhanh số tiền cần thu:
             </label>
             <div className="grid grid-cols-2 gap-2">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => handleOpenPreset(remaining)}
-                className="py-1.5 px-2 rounded bg-secondary hover:bg-secondary/80 text-foreground font-medium text-center cursor-pointer"
+                className="font-medium"
               >
                 Thu hết: {remaining.toLocaleString()}đ
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => handleOpenPreset(Math.round(remaining / 2))}
-                className="py-1.5 px-2 rounded bg-secondary hover:bg-secondary/80 text-foreground font-medium text-center cursor-pointer"
+                className="font-medium"
               >
                 Thu 50%: {Math.round(remaining / 2).toLocaleString()}đ
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -162,20 +167,21 @@ export function CollectPaymentModal({
                 const Icon = m.icon;
                 const isSelected = method === m.id;
                 return (
-                  <button
+                  <Button
                     key={m.id}
                     type="button"
+                    variant={isSelected ? "accent-soft" : "secondary"}
+                    size="sm"
                     onClick={() => setMethod(m.id as any)}
+                    aria-pressed={isSelected}
                     className={cn(
-                      "p-2 rounded-lg text-center flex flex-col items-center gap-1 cursor-pointer transition-colors",
-                      isSelected
-                        ? "bg-accent/15 text-accent font-bold"
-                        : "bg-secondary/50 text-muted-foreground hover:text-foreground"
+                      "h-auto flex-col gap-1 px-2 py-2",
+                      isSelected && "font-semibold"
                     )}
                   >
                     <Icon className="w-4 h-4" />
                     <span className="text-[11px]">{m.label}</span>
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -227,21 +233,18 @@ export function CollectPaymentModal({
         </div>
 
         <DialogFooter className="pt-3 flex items-center justify-between sm:justify-between">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-md text-xs font-medium text-muted-foreground hover:bg-secondary cursor-pointer"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Hủy
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
             disabled={isSubmitting || currentAmountNum <= 0}
             onClick={handleSubmit}
-            className="px-5 py-2 rounded-md text-xs font-semibold bg-accent text-accent-foreground hover:opacity-90 cursor-pointer disabled:opacity-50 shadow"
+            className="font-semibold"
           >
             {isSubmitting ? "Đang xử lý..." : `Xác nhận đã thu ${currentAmountNum.toLocaleString()}đ`}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

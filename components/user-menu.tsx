@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, KeyRound, LogOut, ShieldCheck, UserCog } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, UserCog } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,8 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/components/auth-context";
 import { ChangePasswordDialog } from "@/components/change-password-dialog";
+import { Button } from "@/components/ui/button";
 import { ROLE_META, roleChip } from "@/lib/ui";
-import { cn } from "@/lib/utils";
 
 export function UserMenu({ onOpenAccounts }: { onOpenAccounts?: () => void }) {
   const { currentUser, logout } = useAuth();
@@ -39,12 +39,12 @@ export function UserMenu({ onOpenAccounts }: { onOpenAccounts?: () => void }) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
             aria-label="Tài khoản đang đăng nhập"
-            className={cn(
-              "flex h-9 items-center gap-2 rounded-lg bg-card pl-1.5 pr-2 text-left",
-              "transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            )}
+            className="h-9 justify-start gap-2 pl-1.5 pr-2 text-left"
           >
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent/15 text-[10px] font-bold text-accent">
               {initials || <RoleIcon className="h-3.5 w-3.5" />}
@@ -58,7 +58,7 @@ export function UserMenu({ onOpenAccounts }: { onOpenAccounts?: () => void }) {
               </span>
             </span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="end" className="w-64 border-border bg-popover">

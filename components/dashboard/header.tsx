@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DateRangePicker, type DatePreset, type DateRange } from "@/components/dashboard/date-range-picker";
 import { UserMenu } from "@/components/user-menu";
+import { Button, buttonVariants } from "@/components/ui/button";
 
 interface HeaderProps {
   activeSection: string;
@@ -129,26 +130,27 @@ export function Header({ activeSection, datePreset, dateRange, onDateRangeChange
           <Search className="absolute left-3 w-4 h-4 text-muted-foreground pointer-events-none" />
           <input
             type="text"
-            placeholder="Tìm kiếm..."
+            placeholder="Tìm mã HĐ, SĐT, tên khách..."
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => { if (event.key === "Enter" && query.trim()) submitSearch(query); }}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
+            aria-label="Tìm kiếm theo mã hoá đơn, số điện thoại hoặc tên khách"
             className={cn(FIELD_BASE, "pl-9 pr-4 transition-all duration-200")}
           />
         </div>
 
         {/* Notifications */}
         <div className="relative">
-          <button
+          <Button
+            type="button"
+            variant={notificationsOpen ? "accent-soft" : "ghost"}
+            size="icon"
             aria-label="Mở thông báo"
             aria-expanded={notificationsOpen}
             onClick={() => setNotificationsOpen((open) => !open)}
-            className={cn(
-              "relative w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-200",
-              notificationsOpen ? "bg-accent/15 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-            )}
+            className="relative"
           >
             <Bell className="w-5 h-5" />
             {unread > 0 && (
@@ -156,7 +158,7 @@ export function Header({ activeSection, datePreset, dateRange, onDateRangeChange
                 {unread > 99 ? "99+" : unread}
               </span>
             )}
-          </button>
+          </Button>
           {notificationsOpen && (
             <div className={cn(SURFACE_CARD, "absolute right-0 top-12 z-50 w-[360px] overflow-hidden shadow-2xl shadow-black/30")}>
               <div className="flex items-center justify-between px-4 py-3">
@@ -166,9 +168,15 @@ export function Header({ activeSection, datePreset, dateRange, onDateRangeChange
                     {unread > 0 ? `Bạn có ${unread} thông báo chưa đọc` : "Không có thông báo mới"}
                   </p>
                 </div>
-                <button aria-label="Đóng thông báo" onClick={() => setNotificationsOpen(false)} className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Đóng thông báo"
+                  onClick={() => setNotificationsOpen(false)}
+                >
                   <X className="h-4 w-4" />
-                </button>
+                </Button>
               </div>
               <div className="divide-y divide-border/50">
                 {notifs.length === 0 && (
@@ -190,16 +198,33 @@ export function Header({ activeSection, datePreset, dateRange, onDateRangeChange
               </div>
               <div className="flex">
                 {unread > 0 && (
-                  <button onClick={markAllRead} className="flex-1 px-4 py-3 text-center text-xs font-medium text-muted-foreground hover:bg-secondary/60">Đánh dấu đã đọc</button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={markAllRead}
+                    className="h-auto flex-1 rounded-none py-3 text-xs"
+                  >
+                    Đánh dấu đã đọc
+                  </Button>
                 )}
-                <Link href="/thong-bao" onClick={() => setNotificationsOpen(false)} className="flex-1 px-4 py-3 text-center text-xs font-medium text-accent hover:bg-accent/5">Xem tất cả thông báo</Link>
+                <Link
+                  href="/thong-bao"
+                  onClick={() => setNotificationsOpen(false)}
+                  className={cn(
+                    buttonVariants({ variant: "ghost", size: "sm" }),
+                    "h-auto flex-1 rounded-none py-3 text-xs text-accent hover:text-accent"
+                  )}
+                >
+                  Xem tất cả thông báo
+                </Link>
               </div>
             </div>
           )}
         </div>
 
         {/* Signed-in user menu */}
-        <UserMenu onOpenAccounts={() => router.push("/nhan-su")} />
+        <UserMenu onOpenAccounts={() => router.push("/cai-dat")} />
       </div>
     </header>
   );

@@ -8,7 +8,9 @@
 --   -> tab SQL -> copy/paste toan bo file nay -> Go
 -- Cach dung 2 (MySQL client, sau khi da tao database):
 --   mysql -u root pcm_vanhanh < scripts/setup-basic.sql
--- Xong la chay app ngay: npm run dev (khong can db:migrate, db:admin)
+-- Sau do tao admin: npm run db:admin
+-- va chay: npm run db:migrate (de ap dung 0010 - khoa ngoai that)
+-- roi chay: npm run dev
 -- ============================================================
 
 USE pcm_vanhanh;
@@ -204,13 +206,7 @@ INSERT IGNORE INTO schema_migrations (name) VALUES
   ('0008_security_indexes.sql'),
   ('0009_notifications.sql');
 
--- ---------- admin mac dinh: admin / admin ----------
--- Hash PBKDF2-SHA256 210k vong cua mat khau "admin", tao bang lib/crypto.ts
-INSERT IGNORE INTO users
-  (id, name, phone, email, role, is_active, username, password_hash, failed_login_count, updated_at)
-VALUES
-  ('usr_admin_01', 'Administrator', '0901234567', 'admin@localhost', 'admin', 1, 'admin',
-   'pbkdf2_sha256$210000$U6XwfBR0hmjKHSWd0C9eLA==$78j0bfizulZtfcsARLPNTKvegrxzvL+243qemoSMkgg=',
-   0, CURRENT_TIMESTAMP);
-
-INSERT IGNORE INTO user_roles (user_id, role) VALUES ('usr_admin_01', 'admin');
+-- ---------- admin dau tien ----------
+-- Khong seed san tai khoan/mat khau mac dinh.
+-- Sau khi import file nay, chay: npm run db:admin
+-- (tao admin tu ADMIN_NAME/ADMIN_USERNAME/ADMIN_PASSWORD/ADMIN_PHONE trong .env)

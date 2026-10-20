@@ -2,7 +2,7 @@
  * Đặt lại mật khẩu cho một tài khoản từ command line (dùng khi admin khoá máy
  * hoặc quên mật khẩu admin).
  *
- *   npm run user:password -- <username> [matKchauMoi]
+ *   npm run user:password -- <username> [matKhauMoi]
  *
  * Không truyền mật khẩu -> hệ thống sinh một mật khẩu ngẫu nhiên.
  * Mọi phiên đăng nhập đang hoạt động của tài khoản đó sẽ bị huỷ.
@@ -17,13 +17,13 @@ async function main() {
   const provided = process.argv[3];
 
   if (!username) {
-    console.error('Cách dùng: npm run user:password -- <username> [matKchauMoi]');
+    console.error('Cách dùng: npm run user:password -- <username> [matKhauMoi]');
     process.exit(1);
   }
 
   const db = getDb();
   const user = await db
-    .prepare('SELECT id, name, role, username FROM users WHERE LOWER(username) = LOWER(?)')
+    .prepare('SELECT id, name, username FROM users WHERE LOWER(username) = LOWER(?)')
     .bind(username)
     .first<any>();
 
@@ -31,6 +31,12 @@ async function main() {
     console.error(`Không tìm thấy tài khoản có tên đăng nhập "${username}"`);
     process.exit(1);
   }
+
+  const roleRows = await db
+    .prepare('SELECT role FROM user_roles WHERE user_id = ? ORDER BY role')
+    .bind(user.id)
+    .all<{ role: string }>();
+  const roleLabels = (roleRows.results || []).map((row) => row.role).join(', ') || 'chưa có vai trò';
 
   const password = provided || generateToken(9);
   const policy = checkPasswordPolicy(password);
@@ -63,11 +69,19 @@ async function main() {
     detail: { generated: !provided, via: 'cli' },
   });
 
-  console.log(`\nĐã đặt lại mật khẩu cho ${user.name} (${user.roles.join(', ')}).`);
+  console.log(`\nĐã đặt lại mật khẩu cho ${user.name} (${roleLabels}).`);
   console.log(`Mật khẩu: ${password}`);
   console.log('Tài khoản đã được mở khoá và kích hoạt lại nếu trước đó bị khoá.');
   console.log('Tất cả phiên đăng nhập cũ đã bị huỷ.\n');
   await closeDb();
 }
 
-main();
+main().catch(async (error) => {
+  console.error('Đặt lại mật khẩu thất bại:', error);
+  try {
+    await closeDb();
+  } catch {
+    /* ignore */
+  }
+  process.exit(1);
+});

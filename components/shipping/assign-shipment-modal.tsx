@@ -1,18 +1,18 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Order, User } from "@/lib/types";
-import { Truck, MapPin, Calculator, UserCheck, AlertCircle } from "lucide-react";
+import { Truck, MapPin, Calculator, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
-  chip,
   LABEL_BASE,
   SECTION_TITLE,
   SURFACE_CARD,
   TONE_TEXT,
 } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
 
 interface AssignShipmentModalProps {
   order: Order | null;
@@ -225,14 +225,16 @@ export function AssignShipmentModal({
               <span className="font-semibold text-foreground flex items-center gap-1.5">
                 <Calculator className="w-3.5 h-3.5 text-accent" /> Tính quãng đường vận chuyển
               </span>
-              <button
+              <Button
                 type="button"
+                variant="accent-soft"
+                size="xs"
                 disabled={isCalculatingDistance}
                 onClick={calculateDistance}
-                className="px-3 py-1 rounded-md bg-accent/20 hover:bg-accent/30 text-accent font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50 text-[11px]"
+                className="font-semibold"
               >
                 {isCalculatingDistance ? "Đang tính..." : "⚡ Tính km Google Maps"}
-              </button>
+              </Button>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -258,28 +260,26 @@ export function AssignShipmentModal({
                   Nguồn tính km
                 </label>
                 <div className="grid grid-cols-2 gap-1">
-                  <button
+                  <Button
                     type="button"
+                    variant={kmSource === "gg_map" ? "accent-soft" : "secondary"}
+                    size="xs"
                     onClick={() => setKmSource("gg_map")}
-                    className={cn(
-                      chip(kmSource === "gg_map" ? "accent" : "neutral"),
-                      "justify-center cursor-pointer transition-colors",
-                      kmSource === "gg_map" && "font-semibold"
-                    )}
+                    aria-pressed={kmSource === "gg_map"}
+                    className={kmSource === "gg_map" ? "font-semibold" : undefined}
                   >
                     Google Maps
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant={kmSource === "manual" ? "accent-soft" : "secondary"}
+                    size="xs"
                     onClick={() => setKmSource("manual")}
-                    className={cn(
-                      chip(kmSource === "manual" ? "accent" : "neutral"),
-                      "justify-center cursor-pointer transition-colors",
-                      kmSource === "manual" && "font-semibold"
-                    )}
+                    aria-pressed={kmSource === "manual"}
+                    className={kmSource === "manual" ? "font-semibold" : undefined}
                   >
                     Nhập tay
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -301,21 +301,18 @@ export function AssignShipmentModal({
         </div>
 
         <DialogFooter className="pt-3 flex items-center justify-between sm:justify-between">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-md text-xs font-medium text-muted-foreground hover:bg-secondary cursor-pointer"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Đóng
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
             disabled={isSubmitting}
             onClick={handleSubmit}
-            className="px-5 py-2 rounded-md text-xs font-semibold bg-accent text-accent-foreground hover:opacity-90 cursor-pointer disabled:opacity-50 shadow"
+            className="font-semibold"
           >
             {isSubmitting ? "Đang xử lý..." : "Xác nhận phân công (Chuyển ship_assigned)"}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

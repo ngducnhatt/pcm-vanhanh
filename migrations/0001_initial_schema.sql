@@ -1,4 +1,8 @@
 -- Migration 0001: Initial MySQL/MariaDB schema for computer hardware operations.
+--
+-- LƯU Ý: các cột có `REFERENCES ...` bên dưới chỉ mang tính tài liệu.
+-- MariaDB (XAMPP) bỏ qua REFERENCES khai báo ở cấp cột; khoá ngoại thật
+-- được thêm ở migration 0010_foreign_keys.sql.
 
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) PRIMARY KEY,

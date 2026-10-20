@@ -8,6 +8,7 @@ import { Sidebar } from "@/components/dashboard/sidebar";
 import { Header } from "@/components/dashboard/header";
 import { useAuth } from "@/components/auth-context";
 import { defaultDateRange, type DatePreset, type DateRange } from "@/components/dashboard/date-range-picker";
+import { buttonVariants } from "@/components/ui/button";
 import { canAccessSection, defaultHrefFor, sectionForPath } from "@/lib/nav";
 
 interface DashboardDateContextType {
@@ -23,7 +24,7 @@ export function useDashboardDate(): DashboardDateContextType {
   const ctx = useContext(DashboardDateContext);
   if (!ctx) {
     const range = defaultDateRange();
-    return { datePreset: "7days" as DatePreset, dateRange: range, onDateRangeChange: () => {} };
+    return { datePreset: "today" as DatePreset, dateRange: range, onDateRangeChange: () => {} };
   }
   return ctx;
 }
@@ -38,12 +39,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const { currentUser, isLoading, roles } = useAuth();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [datePreset, setDatePreset] = useState<DatePreset>("7days");
+  const [datePreset, setDatePreset] = useState<DatePreset>("today");
   const [dateRange, setDateRange] = useState<DateRange>(() => defaultDateRange());
 
   const activeSection = sectionForPath(pathname);
 
-  // Chưa có session -> middleware thường redirect trước, đây là lớp dự phòng.
+  // Chưa có session -> proxy thường redirect trước, đây là lớp dự phòng.
   // Có session nhưng sai role cho route hiện tại -> đưa về route mặc định của role.
   useEffect(() => {
     if (isLoading || !currentUser) return;
@@ -68,7 +69,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Link
           href="/login"
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground"
+          className={buttonVariants({ size: "sm" })}
         >
           Đăng nhập
         </Link>

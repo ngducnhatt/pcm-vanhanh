@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   CreditCard,
   History,
@@ -13,6 +13,7 @@ import type { Order } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { chip } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
 import { HoDonForm, orderToHoDonLines } from "@/components/orders/hoadon-form";
 
 export type OrderDetailTab = "items" | "history" | "payments" | "shipment";
@@ -44,19 +45,22 @@ export function OrderDetailTabs({
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
-            <button
+            <Button
               key={tab.id}
+              type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => setActiveTab(tab.id as OrderDetailTab)}
               className={cn(
-                "px-4 py-2.5 flex items-center gap-1.5 border-b-2 transition-colors cursor-pointer",
+                "h-9 gap-1.5 rounded-none border-b-2 px-4 transition-colors",
                 isActive
-                  ? "border-accent text-accent font-semibold"
+                  ? "border-accent font-semibold text-accent"
                   : "border-transparent text-muted-foreground hover:text-foreground"
               )}
             >
               <Icon className="w-3.5 h-3.5" />
               {tab.label}
-            </button>
+            </Button>
           );
         })}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/components/auth-context";
 import { Order, OrderStatus, ROLE_LABELS, STATUS_LABELS, PAYMENT_STATUS_LABELS } from "@/lib/types";
 import {
@@ -13,26 +13,22 @@ import {
   Bike,
   Plus,
   Search,
-  Filter,
   RefreshCw,
   Edit,
   Trash2,
-  FileText,
   ScanBarcode,
   CheckCircle2,
-  Clock,
   Printer,
   DollarSign,
-  AlertTriangle,
-  RotateCcw,
-  Navigation,
   Phone,
-  MapPin,
   Link2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { chip, ROLE_META, roleChip } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { copyOrderLink } from "@/components/orders/order-detail-page";
 import { CreateOrderModal } from "@/components/orders/create-order-modal";
 import { EditOrderModal } from "@/components/orders/edit-order-modal";
@@ -71,6 +67,7 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | "all">("all");
   const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<string>("all");
 
@@ -106,13 +103,14 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
         params.append("role_queue", role);
       }
 
-      if (searchQuery.trim()) {
-        params.append("search", searchQuery.trim());
+      if (debouncedSearch) {
+        params.append("search", debouncedSearch);
       }
       if (selectedPaymentStatus !== "all") {
         params.append("payment_status", selectedPaymentStatus);
       }
-      if (dateRange?.from && dateRange?.to) {
+      // Khi đang tìm kiếm, bỏ lọc ngày để tìm được cả đơn cũ.
+      if (!debouncedSearch && dateRange?.from && dateRange?.to) {
         params.append("from", dateRange.from);
         params.append("to", dateRange.to);
       }
@@ -127,7 +125,7 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [role, adminTab, searchQuery, selectedPaymentStatus, initialQueue, dateRange?.from, dateRange?.to]);
+  }, [role, adminTab, debouncedSearch, selectedPaymentStatus, initialQueue, dateRange?.from, dateRange?.to]);
 
   useEffect(() => {
     fetchOrders();
@@ -221,7 +219,7 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold text-foreground">
               {role === "admin"
-                ? "Trung Tâm Điều Hành & Quản Lý Đơn Hàng"
+                ? "Đơn Hàng"
                 : `Hàng Đợi Xử Lý: ${ROLE_LABELS[role]}`}
             </h2>
             {role && role !== "admin" && role in ROLE_META && (
@@ -233,34 +231,29 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
               {filteredOrders.length} đơn hàng
             </span>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {role === "kinh_doanh" && "Tạo đơn linh kiện, chọn thanh toán, sửa/hủy đơn trước khi hoàn tất."}
-            {role === "kho" && "Hàng đợi xuất kho: Quét mã vạch tự động nhận sản phẩm, gán serial và in phiếu."}
-            {role === "ky_thuat" && "Hàng đợi kỹ thuật: Lắp ráp linh kiện, đi dây, cài Win và stress test."}
-            {role === "quan_ly_ky_thuat" && "Chế độ giám sát điều phối: Xem toàn bộ tiến độ kỹ thuật, không có bước duyệt chặn luồng."}
-            {role === "bao_hanh" && "Hàng đợi bảo hành: Tiếp nhận, kiểm tra linh kiện lỗi và đổi trả bảo hành."}
-            {role === "quan_ly_ship" && "Hàng đợi điều phối: Phân công shipper, tính km với Google Maps Distance Matrix."}
-            {role === "shipper" && "Giao diện giao hàng: Nhận đơn, cập nhật đang giao, giao xong và thu tiền COD."}
-            {role === "admin" && "Toàn quyền giám sát luồng state machine qua từng bộ phận."}
-          </p>
         </div>
 
         <div className="flex items-center gap-2.5">
-          <button
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-sm"
             onClick={fetchOrders}
-            className="p-2 rounded-lg bg-secondary/60 text-muted-foreground hover:text-foreground hover:bg-secondary cursor-pointer transition-colors"
             title="Làm mới dữ liệu"
+            aria-label="Làm mới dữ liệu"
           >
             <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
-          </button>
+          </Button>
 
           {(role === "kinh_doanh" || role === "admin") && (
-            <button
+            <Button
+              type="button"
+              size="sm"
               onClick={() => setIsCreateOpen(true)}
-              className="px-4 py-2 rounded-lg bg-accent text-accent-foreground text-xs font-semibold hover:opacity-90 flex items-center gap-2 cursor-pointer shadow"
+              className="font-semibold"
             >
               <Plus className="w-4 h-4" /> Tạo đơn hàng mới
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -278,21 +271,19 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = adminTab === tab.id;
-            const tabRole = tab.id in ROLE_META ? roleChip(tab.id as keyof typeof ROLE_META) : null;
             return (
-              <button
+              <Button
                 key={tab.id}
+                type="button"
+                variant={isActive ? "accent-soft" : "ghost"}
+                size="xs"
                 onClick={() => setAdminTab(tab.id)}
-                className={cn(
-                  "px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer",
-                  isActive
-                    ? "bg-accent/15 text-accent font-semibold ring-2 ring-current"
-                    : tabRole || "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                )}
+                aria-pressed={isActive}
+                className={cn("font-medium", isActive && "font-semibold ring-1 ring-current")}
               >
                 <Icon className="w-3.5 h-3.5" />
                 {tab.label}
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -306,9 +297,23 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Tìm theo mã đơn (HD-...), tên khách, số điện thoại..."
-            className="w-full h-8 pl-9 pr-3 rounded-lg bg-secondary/60 border border-transparent focus:outline-none focus:border-accent/60 focus:bg-secondary"
+            placeholder="Tìm mã HĐ (HD-001), SĐT, tên khách..."
+            aria-label="Tìm kiếm đơn hàng theo mã hoá đơn, số điện thoại hoặc tên khách"
+            className="w-full h-8 pl-9 pr-9 rounded-lg bg-secondary/60 border border-transparent focus:outline-none focus:border-accent/60 focus:bg-secondary"
           />
+          {searchQuery && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setSearchQuery("")}
+              title="Xoá tìm kiếm"
+              aria-label="Xoá tìm kiếm"
+              className="absolute right-0.5 top-0.5"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
 
         <div>
@@ -340,6 +345,13 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
         </div>
       </div>
 
+      {searchQuery.trim() && (
+        <p className="text-[11px] text-muted-foreground">
+          Đang tìm <span className="font-medium text-accent">“{searchQuery.trim()}”</span> trên toàn bộ thời gian
+          (bỏ qua bộ lọc ngày).
+        </p>
+      )}
+
       {/* Orders List / Table */}
       <div className="rounded-xl overflow-hidden bg-card">
         {isLoading ? (
@@ -349,10 +361,14 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
         ) : filteredOrders.length === 0 ? (
           <div className="py-16 text-center space-y-2">
             <div className="text-muted-foreground text-sm font-medium">
-              Không có đơn hàng nào trong hàng đợi này.
+              {searchQuery.trim()
+                ? `Không tìm thấy đơn hàng phù hợp với “${searchQuery.trim()}”.`
+                : "Không có đơn hàng nào trong hàng đợi này."}
             </div>
             <p className="text-xs text-muted-foreground/70">
-              Hãy tạo đơn mới hoặc đổi bộ lọc tìm kiếm để xem các đơn hàng khác.
+              {searchQuery.trim()
+                ? "Thử mã hoá đơn dạng HD-001, số điện thoại (có/không khoảng trắng) hoặc tên khách."
+                : "Hãy tạo đơn mới hoặc đổi bộ lọc tìm kiếm để xem các đơn hàng khác."}
             </p>
           </div>
         ) : (
@@ -385,19 +401,26 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                       {/* Mã đơn & Ngày */}
                       <td className="p-3">
                         <div className="flex items-center gap-1">
-                          <button
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="xs"
                             onClick={() => setSelectedOrderForDetails(order.id)}
-                            className="font-mono font-bold text-accent hover:underline text-left cursor-pointer"
+                            className="h-auto p-0 font-mono text-xs font-bold"
                           >
                             {order.invoice_no}
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
                             onClick={() => copyOrderLink(order.invoice_no)}
-                            className="p-1 rounded text-muted-foreground hover:bg-secondary hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                             title={`Sao chép link riêng: /don-hang/${order.invoice_no}`}
+                            aria-label={`Sao chép link đơn ${order.invoice_no}`}
+                            className="opacity-0 transition-opacity group-hover:opacity-100"
                           >
                             <Link2 className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
                         </div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">
                           {order.invoice_date}
@@ -475,18 +498,24 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
                           {/* 1. XEM CHI TIẾT */}
-                          <button
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="icon-xs"
                             onClick={() => setSelectedOrderForDetails(order.id)}
-                            className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-foreground cursor-pointer"
                             title="Xem chi tiết đơn"
+                            aria-label={`Xem chi tiết đơn ${order.invoice_no}`}
                           >
                             <Eye className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
 
                           {/* 2. KHO ACTIONS */}
                           {(role === "kho" || role === "admin") &&
                             (order.status === "new" || order.status === "kho_pending") && (
-                              <button
+                              <Button
+                                type="button"
+                                variant="warning-soft"
+                                size="xs"
                                 onClick={async () => {
                                   // Fetch order full items before opening
                                   const res = await fetch(`/api/orders/${order.id}`);
@@ -495,16 +524,19 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                                     setSelectedOrderForExport(d.order);
                                   }
                                 }}
-                                className="px-2.5 py-1 rounded bg-warning/15 text-warning hover:bg-warning/25 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                className="font-semibold"
                               >
                                 <ScanBarcode className="w-3.5 h-3.5" /> Xuất đơn & Quét
-                              </button>
+                              </Button>
                             )}
 
                           {/* 3. KỸ THUẬT ACTIONS */}
                           {(role === "ky_thuat" || role === "admin") &&
                             order.status === "kithuat_pending" && (
-                              <button
+                              <Button
+                                type="button"
+                                variant="accent-soft"
+                                size="xs"
                                 onClick={() =>
                                   handleTransitionStatus(
                                     order.id,
@@ -513,10 +545,10 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                                     "Kỹ thuật viên đã kiểm tra linh kiện, lắp ráp hoàn chỉnh và stress test thành công"
                                   )
                                 }
-                                className="px-2.5 py-1 rounded bg-accent/15 text-accent hover:bg-accent/25 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                className="font-semibold"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" /> Hoàn thành KT
-                              </button>
+                              </Button>
                             )}
 
                           {/* 4. QUẢN LÝ KỸ THUẬT: Chỉ giám sát điều phối, KHÔNG DUYỆT */}
@@ -529,7 +561,10 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                           {/* 5. BẢO HÀNH ACTIONS */}
                           {(role === "bao_hanh" || role === "admin") &&
                             order.status === "baohanh_pending" && (
-                              <button
+                              <Button
+                                type="button"
+                                variant="success-soft"
+                                size="xs"
                                 onClick={() =>
                                   handleTransitionStatus(
                                     order.id,
@@ -538,28 +573,34 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                                     "Đã kiểm tra lỗi và đổi mới linh kiện bảo hành cho khách hàng"
                                   )
                                 }
-                                className="px-2.5 py-1 rounded bg-success/15 text-success hover:bg-success/25 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                className="font-semibold"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" /> Hoàn thành BH
-                              </button>
+                              </Button>
                             )}
 
                           {/* 6. QUẢN LÝ SHIP ACTIONS */}
                           {(role === "quan_ly_ship" || role === "admin") &&
                             order.status === "ship_pending" && (
-                              <button
+                              <Button
+                                type="button"
+                                variant="warning-soft"
+                                size="xs"
                                 onClick={() => setSelectedOrderForShipment(order)}
-                                className="px-2.5 py-1 rounded bg-warning/15 text-warning hover:bg-warning/25 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                className="font-semibold"
                               >
                                 <Truck className="w-3.5 h-3.5" /> Phân công ship
-                              </button>
+                              </Button>
                             )}
 
                           {/* 7. SHIPPER ACTIONS */}
                           {(role === "shipper" || role === "admin") && (
                             <>
                               {order.status === "ship_assigned" && (
-                                <button
+                                <Button
+                                  type="button"
+                                  variant="warning-soft"
+                                  size="xs"
                                   onClick={() =>
                                     handleTransitionStatus(
                                       order.id,
@@ -568,14 +609,17 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                                       "Shipper đã nhận hàng từ kho và đang trên đường giao"
                                     )
                                   }
-                                  className="px-2.5 py-1 rounded bg-warning/15 text-warning hover:bg-warning/25 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                  className="font-semibold"
                                 >
                                   <Bike className="w-3.5 h-3.5" /> Bắt đầu giao
-                                </button>
+                                </Button>
                               )}
 
                               {order.status === "ship_dangiao" && (
-                                <button
+                                <Button
+                                  type="button"
+                                  variant="success-soft"
+                                  size="xs"
                                   onClick={() =>
                                     handleTransitionStatus(
                                       order.id,
@@ -584,19 +628,21 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                                       "Đã giao tận tay khách hàng"
                                     )
                                   }
-                                  className="px-2.5 py-1 rounded bg-success/15 text-success hover:bg-success/25 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                  className="font-semibold"
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5" /> Giao xong
-                                </button>
+                                </Button>
                               )}
 
                               {order.payment_status !== "full" && (
-                                <button
+                                <Button
+                                  type="button"
+                                  size="xs"
                                   onClick={() => setSelectedOrderForPayment(order)}
-                                  className="rounded-md px-2.5 py-1.5 bg-accent text-accent-foreground hover:opacity-90 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-opacity"
+                                  className="font-semibold"
                                 >
                                   <DollarSign className="w-3.5 h-3.5" /> Thu tiền
-                                </button>
+                                </Button>
                               )}
                             </>
                           )}
@@ -606,7 +652,10 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                             order.status !== "completed" &&
                             order.status !== "cancelled" && (
                               <>
-                                <button
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="icon-xs"
                                   onClick={async () => {
                                     const res = await fetch(`/api/orders/${order.id}`);
                                     if (res.ok) {
@@ -614,23 +663,29 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                                       setSelectedOrderForEdit(d.order);
                                     }
                                   }}
-                                  className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground cursor-pointer"
                                   title="Sửa đơn hàng (sau khi kho xuất sẽ ghi nhận và rollback quy trình)"
+                                  aria-label={`Sửa đơn ${order.invoice_no}`}
                                 >
                                   <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                <button
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="danger-soft"
+                                  size="icon-xs"
                                   onClick={() => handleCancelOrder(order)}
-                                  className="p-1.5 rounded bg-secondary text-muted-foreground hover:bg-danger/20 hover:text-danger cursor-pointer transition-colors"
                                   title="Hủy đơn hàng"
+                                  aria-label={`Hủy đơn ${order.invoice_no}`}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                </Button>
                               </>
                             )}
 
                           {/* IN PHIẾU XUẤT */}
-                          <button
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="icon-xs"
                             onClick={async () => {
                               const res = await fetch(`/api/orders/${order.id}`);
                               if (res.ok) {
@@ -638,11 +693,11 @@ export function OrdersHub({ initialQueue, dateRange }: OrdersHubProps) {
                                 setSelectedOrderForPrint(d.order);
                               }
                             }}
-                            className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-accent cursor-pointer"
                             title="In phiếu xuất kho & bàn giao"
+                            aria-label={`In phiếu xuất kho đơn ${order.invoice_no}`}
                           >
                             <Printer className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
                         </div>
                       </td>
                     </tr>

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Activity, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-context";
-import { SURFACE_CARD, SECTION_TITLE, SECTION_SUBTITLE, CHIP_BASE, ROLE_META, roleChip } from "@/lib/ui";
+import { SURFACE_CARD, SECTION_TITLE, CHIP_BASE, ROLE_META, roleChip } from "@/lib/ui";
+import { Button } from "@/components/ui/button";
 import type { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -84,39 +85,42 @@ export function OverviewSection({ dateRange }: { dateRange?: { from: string; to:
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className={SECTION_TITLE}>Hoạt động vận hành</h2>
-          <p className={SECTION_SUBTITLE}>
-            {total > 0 ? `${total} hoạt động` : "Mọi thao tác trên đơn hàng theo thời gian thực"} · chỉ Admin xem được
-          </p>
         </div>
-        <button
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
           onClick={() => load(true)}
           disabled={isLoading}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/70 disabled:opacity-50"
         >
           {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           Làm mới
-        </button>
+        </Button>
       </div>
 
       {/* Lọc theo vai trò */}
       <div className="flex flex-wrap gap-1.5">
-        <button
+        <Button
+          type="button"
+          variant={roleFilter === "all" ? "default" : "ghost"}
+          size="xs"
           onClick={() => setRoleFilter("all")}
-          className={cn(
-            CHIP_BASE,
-            roleFilter === "all" ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground"
-          )}
+          aria-pressed={roleFilter === "all"}
         >
           Tất cả
-        </button>
+        </Button>
         {(Object.keys(ROLE_META) as Role[]).map((role) => (
-          <button
+          <Button
             key={role}
+            type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => setRoleFilter(roleFilter === role ? "all" : role)}
+            aria-pressed={roleFilter === role}
             className={cn(roleChip(role), roleFilter === role && "ring-2 ring-current")}
           >
             {ROLE_META[role].short}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -156,14 +160,16 @@ export function OverviewSection({ dateRange }: { dateRange?: { from: string; to:
 
       {items.length < total && (
         <div className="text-center">
-          <button
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => load(false)}
             disabled={isMore}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-4 py-2 text-xs font-medium text-foreground hover:bg-secondary/70 disabled:opacity-50"
           >
             {isMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Xem thêm ({items.length}/{total})
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -200,19 +200,19 @@ export function CustomersSection() {
             {["Enterprise", "Growth", "Starter"].map((tier) => (
               <Button
                 key={tier}
-                variant={selectedTier === tier ? "default" : "outline"}
+                variant={selectedTier === tier ? "default" : "secondary"}
                 size="sm"
                 onClick={() => setSelectedTier(selectedTier === tier ? null : tier)}
-                className={selectedTier === tier ? "bg-accent text-accent-foreground" : ""}
+                aria-pressed={selectedTier === tier}
               >
                 {tier}
               </Button>
             ))}
           </div>
         </div>
-        <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Customer
+        <Button size="sm">
+          <Plus className="w-4 h-4" />
+          Thêm khách hàng
         </Button>
       </div>
 
@@ -322,15 +322,15 @@ export function CustomersSection() {
 
               {/* Quick Actions */}
               <div className="flex items-center gap-2 mt-4 pt-4">
-                <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-                  <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                <Button variant="outline" size="sm" className="flex-1">
+                  <Calendar className="w-3.5 h-3.5" />
                   Schedule
                 </Button>
-                <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-                  <Mail className="w-3.5 h-3.5 mr-1.5" />
+                <Button variant="outline" size="sm" className="flex-1">
+                  <Mail className="w-3.5 h-3.5" />
                   Email
                 </Button>
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="icon-sm" aria-label="Mở chi tiết khách hàng">
                   <ExternalLink className="w-4 h-4" />
                 </Button>
               </div>

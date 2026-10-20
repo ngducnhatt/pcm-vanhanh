@@ -48,8 +48,8 @@ flowchart TB
         OrdersHub["components/dashboard/sections/orders-hub.tsx<br/>+ orders/* + warehouse/* + shipping/*"]
     end
 
-    subgraph Edge["Next.js Edge"]
-        MW["middleware.ts<br/>chỉ check presence cookie"]
+    subgraph Edge["Next.js Proxy"]
+        MW["proxy.ts<br/>chỉ check presence cookie"]
     end
 
     subgraph Server["Next.js Server (App Router API + lib)"]
@@ -92,7 +92,7 @@ flowchart TB
 **Giải thích kiến trúc:**
 
 1. **Client là MPA (multi-route)**: mỗi mục sidebar là 1 URL riêng (`/tong-quan`, `/don-hang`, `/kho-linh-kien`, `/van-hanh/*`, `/thong-bao`, `/tim-kiem`). `app/(dashboard)/layout.tsx` bọc mọi trang bằng `DashboardShell` (guard auth, sidebar, header, date filter). Route `/` chỉ `redirect("/don-hang")`. Không còn switch `useState` kiểu SPA.
-2. **Middleware (Edge)** cực mỏng: chỉ kiểm tra *có hay không* cookie `pcm_session`. Không query DB ở Edge. Xác thực thật nằm ở `lib/auth.ts` (server).
+2. **Proxy (Next.js 16)** cực mỏng: chỉ kiểm tra *có hay không* cookie `pcm_session`. Không query DB trong proxy. Xác thực thật nằm ở `lib/auth.ts` (server).
 3. **Server API** chia 5 nhóm: `auth`, `admin`, `orders`, `products/users/shipping`, `notifications`. Mỗi route đều gọi `requireUser()` / `requirePermission()` trước khi chạm DB.
 4. **lib/** là trái tim nghiệp vụ: `crypto` (hash), `auth` (session + lockout + audit), `permissions` (RBAC), `state-machine` (luồng đơn), `notifications` (fan-out), `db` (pool + adapter kiểu D1).
 5. **MySQL** là source of truth duy nhất. Google Maps chỉ dùng để tính km, thất bại thì fallback nội suy theo tên quận.
@@ -106,7 +106,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant U as User / Component
-    participant M as middleware.ts
+    participant M as proxy.ts
     participant R as API Route
     participant A as lib/auth.ts
     participant P as lib/permissions.ts
@@ -293,21 +293,24 @@ erDiagram
     orders ||--o{ orders : "related_order_id (đơn BH link đơn gốc)"
 
     users {
-        int id PK
+        varchar id PK "usr_*"
         varchar username UK
         varchar password_hash
         varchar name
         varchar email
         varchar phone
-        varchar role
         boolean is_active
         int failed_login_count
         datetime locked_until
         datetime last_login_at
     }
+    user_roles {
+        varchar user_id FK
+        varchar role "admin/kinh_doanh/kho/ky_thuat/..."
+    }
     sessions {
         char id PK "sha256(token)"
-        int user_id FK
+        varchar user_id FK
         varchar user_agent
         varchar ip
         datetime expires_at
@@ -321,19 +324,19 @@ erDiagram
         varchar category
     }
     orders {
-        int id PK
-        varchar invoice_no UK "số tăng dần từ 1 (đơn cũ: HD-YYYYMMDD-XXX)"
+        varchar id PK "ord_*"
+        varchar invoice_no UK "HD-001, HD-002... (đơn cũ: HD-YYYYMMDD-XXX)"
         varchar status "14 trạng thái"
         varchar payment_status "unpaid/partial/full"
         varchar tags "JSON kithuat/baohanh/ship/thu_cu"
-        int sales_user_id FK
-        int related_order_id FK "đơn BH"
+        varchar sales_user_id FK
+        varchar related_order_id FK "đơn BH"
         decimal total_amount
         decimal paid_amount
     }
     order_items {
-        int id PK
-        int order_id FK
+        varchar id PK "item_*"
+        varchar order_id FK
         varchar product_id FK
         int quantity
         decimal unit_price "giá server tra lại"
@@ -367,7 +370,7 @@ pcm-vanhanh/
 │   ├── auth-context.tsx, login-form.tsx, user-menu.tsx, change-password-dialog.tsx, theme-provider.tsx
 │   ├── dashboard/              # Shell + sections + charts + widgets
 │   │   ├── sidebar.tsx, header.tsx
-│   │   ├── sections/           # orders-hub (THẬT) + overview + employees + pipeline(kho) + deals/customers/forecasting/reports/settings (MOCK legacy)
+│   │   ├── sections/           # orders-hub (THẬT) + overview + employees + pipeline(kho) + customers/forecasting/reports/settings (MOCK legacy)
 │   │   └── charts/
 │   ├── orders/                 # create/edit/details/hoadon-form
 │   ├── warehouse/              # export-warehouse-modal + print-invoice-modal
@@ -375,16 +378,17 @@ pcm-vanhanh/
 │   └── ui/                     # ~50 primitives shadcn/Radix (button/dialog/table/...)
 ├── lib/                        # Nghiệp vụ lõi (không UI)
 │   ├── auth.ts, crypto.ts, db.ts, permissions.ts, state-machine.ts,
-│   ├── notifications.ts, nav.ts, types.ts, ui.ts, utils.ts
-├── hooks/                      # use-toast.ts, use-mobile.ts
-├── migrations/                 # 0001 + 0003..0009 (không có 0002) SQL tiến hóa schema
+│   ├── notifications.ts, nav.ts, types.ts, ui.ts, utils.ts, invoice.ts
+├── hooks/                      # use-toast.ts, use-mobile.ts, use-debounced-value.ts
+├── migrations/                 # 0001 + 0003..0010 (không có 0002) SQL tiến hóa schema
 ├── scripts/                    # migrate/create-admin/set-user-password/test-*/scrape/db-create/setup SQL
 ├── public/                     # Icon, placeholder, fonts Google Sans self-host
 ├── styles/globals.css          # CSS mẫu shadcn CÒN SÓT, KHÔNG được import (file chết)
-├── middleware.ts               # Gate Edge (presence cookie)
+├── proxy.ts                    # Gate request (presence cookie, Next.js 16)
 ├── Caddyfile, next.config.mjs, postcss.config.mjs, components.json, tsconfig.json
 ├── package.json, setup.ps1, pcm_vanhanh.sql, README.md, AGENTS.md, CLAUDE.md
-└── .env, .env.test.example, .gitignore, next-env.d.ts
+└── .env.example, .env.test.example, .gitignore, next-env.d.ts
+    (.env và .env.test là file local, KHÔNG commit)
 ```
 
 ---
@@ -395,19 +399,21 @@ pcm-vanhanh/
 
 | File | Giải thích chi tiết |
 |---|---|
-| `package.json` | Khai báo `pcm-van-hanh@0.1.0`, `engines.node >=22.5.0`. Scripts: `dev/build/start/lint`, `db:create` (chạy ps1), `db:migrate`, `db:admin`, `products:scrape`, `test:flow` (không cần DB), `test:auth` (cần DB `_test`), `user:password`. Deps chính: `next@16`, `react@19`, `mysql2`, `zod`, Radix UI (~20 gói), `tailwindcss@4`, `sonner`, `recharts`, `react-hook-form`. DevDeps: `tsx` (chạy TS trực tiếp), `typescript@5`. |
+| `package.json` | Khai báo `pcm-van-hanh@0.1.0`, `engines.node >=22.5.0`. Scripts: `dev/build/start/typecheck`, `db:create` (chạy ps1), `db:migrate`, `db:admin`, `products:scrape`, `test:flow` (không cần DB), `test:auth` (cần DB `_test`), `user:password`. Deps chính: `next@16`, `react@19`, `mysql2`, `zod`, Radix UI (~20 gói), `tailwindcss@4`, `sonner`, `recharts`, `react-hook-form`. DevDeps: `tsx` (chạy TS trực tiếp), `typescript@5`. |
 | `tsconfig.json` | `strict: true`, `target ES6`, `jsx: react-jsx`, `moduleResolution: bundler` + plugin `next`. Alias `@/* → ./*`. Include toàn bộ `**/*.ts(x)`, exclude `node_modules`. Build sẽ fail nếu lỗi type (kết hợp `next.config.mjs` không ignore). |
 | `next.config.mjs` | Cấu hình tối giản: **không** bỏ qua lỗi TypeScript (`ignoreBuildErrors: false`), `images.unoptimized: true` để khỏi cần Image Optimization server khi self-host. Không có rewrite/headers phức tạp. |
 | `postcss.config.mjs` | Chỉ đăng ký `@tailwindcss/postcss` (Tailwind v4). Gói `autoprefixer` vẫn còn trong deps nhưng không dùng trực tiếp. |
 | `components.json` | Cấu hình shadcn/ui: style `new-york`, `rsc: true`, `baseColor: neutral`, dùng CSS variables, alias `components/utils/ui/lib/hooks`, icon `lucide`, CSS entry `app/globals.css`. CLI shadcn đọc file này khi add component mới. |
 | `Caddyfile` | Template reverse proxy mẫu `app.example.com → 127.0.0.1:3000` + `encode zstd gzip`. Khi deploy thật phải sửa domain. Caddy tự xin TLS khi DNS + forward 80/443 đúng. |
-| `middleware.ts` | Gate Edge duy nhất. `config.matcher` loại trừ `_next/static`, ảnh, fonts. Logic: có cookie + vào `/login` → redirect `/`; chưa cookie + `/api/*` (trừ `/api/auth/login`) → `401`; chưa cookie + page → redirect `/login?next=...`. **Không** verify DB ở đây — việc đó do `requireUser()` làm. |
-| `.gitignore` | Bỏ qua `node_modules`, `.next/out/build/backups`, log npm/yarn/pnpm, `.vercel`, và `next-env.d.ts` (file gen). Lưu ý: `.env` chứa bí mật nên không commit (repo hiện tại có `.env` local là ngoại lệ môi trường dev). |
+| `proxy.ts` | Gate request duy nhất (Next.js 16 đổi tên `middleware.ts` → `proxy.ts`). `config.matcher` loại trừ `_next/static`, ảnh, fonts. Logic: có cookie + vào `/login` hoặc `/` → redirect `/don-hang`; chưa cookie + `/api/*` (trừ `/api/auth/login` và `/api/orders/track/*`) → `401`; chưa cookie + page → redirect `/login?next=...`; riêng `/don-hang/:mã` cho phép khách xem. **Không** verify DB ở đây — việc đó do `requireUser()` làm. |
+| `.gitignore` | Bỏ qua `node_modules`, `.next/out/build/backups`, log npm/yarn/pnpm, `.vercel`, `next-env.d.ts` (file gen), và các file môi trường local `/.env`, `/.env.test`, `/.env.local`, `/.env.*.local`. |
 | `next-env.d.ts` | File tự sinh của Next (reference `next` types + routes). Không sửa tay. |
-| `setup.ps1` | Script setup 7 bước cho Windows + XAMPP: check Node/MySQL → `npm ci` → hỏi pass root 3 lần → tạo DB → sinh `.env` → `db:migrate` + `db:admin` → build → `npm run dev`. Nhắc đổi mật khẩu sau login đầu. |
+| `setup.ps1` | Script setup 6 bước cho Windows + XAMPP: check Node/MySQL → hỏi pass root 3 lần → tạo 2 DB → sinh `.env` (UTF-8 không BOM, hỏi mật khẩu admin hoặc sinh ngẫu nhiên) → `npm ci` → `db:migrate` + `db:admin` → `npm run dev`. Không build trước khi chạy dev. Nhắc đổi mật khẩu sau login đầu. |
 | `README.md` | Tài liệu gốc: state machine 14 trạng thái, 8 roles, luồng login, schema DB, tính năng (barcode/print/Maps/rollback), hướng dẫn cài đặt + hosting + backup. Docs này mở rộng từ README, không thay thế. |
+| `docs/CHAY-LAN-DAU.md` | Hướng dẫn chạy lần đầu đầy đủ cho Windows + XAMPP: cài đặt, tạo DB, `.env`, migrate, tạo admin, chạy app, test, backup, troubleshooting. |
 | `AGENTS.md` / `CLAUDE.md` | `AGENTS.md` chỉ chứa cảnh báo "This is NOT the Next.js you know" (do `next dev` tự chèn, verify tại `node_modules/next/dist/server/lib/generate-agent-files.js`). `CLAUDE.md` chỉ có 1 dòng `@AGENTS.md` (delegate). Không chứa nghiệp vụ. |
-| `.env` | (Chỉ liệt kê tên, không lộ giá trị) `DATABASE_URL` (MySQL chính), `PG_POOL_MAX`, `GOOGLE_MAPS_API_KEY`, `PUBLIC_DOMAIN`, `ADMIN_NAME/ADMIN_EMAIL/ADMIN_USERNAME/ADMIN_PASSWORD/ADMIN_PHONE` (seed admin). |
+| `.env` | File local (không commit, đã có trong `.gitignore`). Chứa `DATABASE_URL` (MySQL chính), `PG_POOL_MAX`, `GOOGLE_MAPS_API_KEY`, `PUBLIC_DOMAIN`, `ADMIN_NAME/ADMIN_EMAIL/ADMIN_USERNAME/ADMIN_PASSWORD/ADMIN_PHONE` (seed admin). |
+| `.env.example` | Mẫu cấu hình để `Copy-Item .env.example .env`. Ghi chú URL-encode mật khẩu, mặc định XAMPP root không mật khẩu. Hướng dẫn chi tiết: `docs/CHAY-LAN-DAU.md`. |
 | `.env.test.example` | Mẫu duy nhất `TEST_DATABASE_URL` → DB test riêng `..._test`. `test-auth-flow.ts` từ chối DB không kết thúc `_test` để tránh xóa prod. |
 | `pcm_vanhanh.sql` | Dump full phpMyAdmin (~112KB, MariaDB 10.4): 12 bảng + dữ liệu thật (users/roles, orders, audit log). Dùng để backup/khôi phục nhanh, soi dữ liệu mẫu, dựng dev giống prod. **Không** dùng làm migration. |
 | `package-lock.json` / `pnpm-lock.yaml` | Lockfile npm + pnpm. Dự án dùng `npm ci` (xem README/setup), `pnpm-lock` còn lại do lịch sử. Cài bằng npm để nhất quán. |
@@ -417,10 +423,10 @@ pcm-vanhanh/
 | File | Giải thích chi tiết |
 |---|---|
 | `app/layout.tsx` | Root Layout: export `metadata` (title/description/icons light/dark/svg/apple), preload 2 font `google-sans-vietnamese/latin.woff2`, `<html lang="vi">`, bọc `AuthProvider` + `Toaster (sonner)`, import `./globals.css`. Mọi trang đều đi qua đây nên auth + toast có mặt toàn app. |
-| `app/page.tsx` | Route gốc `/`: server component chỉ `redirect("/don-hang")`. Không chứa UI/state (đã bỏ kiểu SPA switch `useState`). Guard role thật nằm ở `DashboardShell` + `middleware.ts`. |
+| `app/page.tsx` | Route gốc `/`: server component chỉ `redirect("/don-hang")`. Không chứa UI/state (đã bỏ kiểu SPA switch `useState`). Guard role thật nằm ở `DashboardShell` + `proxy.ts`. |
 | `app/(dashboard)/layout.tsx` | Layout dùng chung mọi trang dashboard: render `<DashboardShell>{children}</DashboardShell>`. Nhờ App Router, shell giữ sidebar/header khi chuyển route. |
-| `app/(dashboard)/tong-quan/page.tsx` → `.../don-hang`, `kho-linh-kien`, `nhan-su`, `bao-cao`, `cai-dat`, `khach-hang`, `du-bao`, `thong-bao`, `tim-kiem?q=`, `van-hanh/kinh-doanh|kho|ky-thuat|bao-hanh|van-chuyen|giao-hang|thanh-toan/page.tsx` | Mỗi URL là 1 trang riêng (MPA), có `metadata.title` riêng. Trang đơn hàng dùng `OrdersHubWithDate(queue)` (đọc date filter từ shell); `/tong-quan` dùng `OverviewWithDate()`; `/tim-kiem` là client đọc `?q=`; `/thong-bao` render `NotificationsPage`. |
-| `app/don-hang/[invoiceNo]/page.tsx` | **Link duy nhất của từng đơn** (`/don-hang/1`, `/don-hang/2`...): trang công khai, nhân viên đã đăng nhập xem full chi tiết, khách chưa đăng nhập nhập đúng SĐT mới xem được (hóa đơn + trạng thái + thanh toán + vận chuyển đã lược). Middleware + `AuthProvider` cho qua không đá sang `/login`. |
+| `app/(dashboard)/tong-quan/page.tsx` → `.../don-hang`, `kho`, `nhan-su`, `bao-cao`, `cai-dat`, `khach-hang`, `du-bao`, `thong-bao`, `tim-kiem?q=`, `van-hanh/kinh-doanh|kho|ky-thuat|bao-hanh|van-chuyen|giao-hang|thanh-toan/page.tsx` | Mỗi URL là 1 trang riêng (MPA), có `metadata.title` riêng. Trang đơn hàng dùng `OrdersHubWithDate(queue)` (đọc date filter từ shell); `/tong-quan` dùng `OverviewWithDate()`; `/tim-kiem` là client đọc `?q=`; `/thong-bao` render `NotificationsPage`. |
+| `app/don-hang/[invoiceNo]/page.tsx` | **Link duy nhất của từng đơn** (`/don-hang/HD-001`, `/don-hang/HD-002`...): trang công khai, nhân viên đã đăng nhập xem full chi tiết, khách chưa đăng nhập nhập đúng SĐT mới xem được (hóa đơn + trạng thái + thanh toán + vận chuyển đã lược). Middleware + `AuthProvider` cho qua không đá sang `/login`. |
 | `app/login/page.tsx` | Route `/login` (24 dòng): render `<LoginForm/>` căn giữa trong `Suspense` (fallback pulse). Đọc `?next=` để redirect sau login (logic nằm trong `LoginForm`). Middleware cho phép anonymous qua, đã login thì bounce về `/`. |
 | `app/globals.css` | **CSS thật đang dùng** (199 dòng): import `tailwindcss/tw-animate-css`, 5 `@font-face` self-host Google Sans (+ Mono fallback về Google Sans cho dấu Việt/₫), `@custom-variant dark`, `:root/.dark` dark-first (oklch tối), `@theme inline` map tokens (`background/foreground/card/sidebar/success/warning/danger`, `font-sans/mono`), `@layer base` apply border/background. Sửa theme phải sửa file này. |
 | `styles/globals.css` | **File chết/legacy** (125 dòng): mẫu shadcn light-first, font Geist, không có Google Sans/vietnamese, không có tokens `success/warning/danger`. **Không** được import ở `layout.tsx`. Giữ lại tham khảo, không ảnh hưởng runtime. |
@@ -449,7 +455,7 @@ pcm-vanhanh/
 
 | File | Method & logic |
 |---|---|
-| `app/api/orders/route.ts` | `GET`: đăng nhập là được; query `status/role_queue/search/tag/payment_status/shipper_id/from/to/page/limit/scope`. Mặc định `scope=queue`: ép queue theo role thật (`getRoleQueueStatuses`), `kinh_doanh` chỉ thấy đơn mình tạo, `shipper` chỉ thấy đơn được gán; `scope=all` xem toàn công ty. Trả `{orders, page, limit}` kèm sales + shipment tóm tắt. `POST` cần `order:create`: body `customer_name/phone` bắt buộc, `items[]`, `initial_payment{method, amount}`, `is_draft`, `tags/note`; tra giá server từ `products`, validate qty/warranty, chặn cọc vượt tổng, sinh `invoice_no` là số tăng dần từ 1 (`MAX(CAST(invoice_no AS UNSIGNED))+1`, retry chống race; đơn cũ HD-ngày-XXX CAST ra 0 nên dãy mới vẫn bắt đầu từ 1), tạo đơn+items+payment+history trong transaction (`draft` hoặc `kho_pending`); audit + notify (trừ draft). |
+| `app/api/orders/route.ts` | `GET`: đăng nhập là được; query `status/role_queue/search/tag/payment_status/shipper_id/from/to/page/limit/scope`. Mặc định `scope=queue`: ép queue theo role thật (`getRoleQueueStatuses`), `kinh_doanh` chỉ thấy đơn mình tạo, `shipper` chỉ thấy đơn được gán; `scope=all` xem toàn công ty. `search` khớp mã HĐ (`HD-001`, `hd001`, `HD 001`), tên khách và SĐT đã chuẩn hóa khoảng trắng/dấu chấm/gạch ngang. Trả `{orders, page, limit}` kèm sales + shipment tóm tắt. `POST` cần `order:create`: body `customer_name/phone` bắt buộc, `items[]`, `initial_payment{method, amount}`, `is_draft`, `tags/note`; tra giá server từ `products`, validate qty/warranty, chặn cọc vượt tổng, sinh `invoice_no` dạng `HD-XXX` từ `lib/invoice.ts` (`MAX` chỉ trên mã `^HD-[0-9]+$`, retry 5 lần chống race; mã cũ `HD-YYYYMMDD-XXX` bị bỏ qua nên dãy mới bắt đầu `HD-001`), tạo đơn+items+payment+history trong transaction (`draft` hoặc `kho_pending`); audit + notify (trừ draft). |
 | `app/api/orders/[id]/route.ts` | `GET` chi tiết tổng hợp `{order}` (order + items join products + history + payments + shipment join users), chỉ cần login. `PUT` cần `order:edit` + ownership (KD chỉ sửa đơn mình) + `canEditOrder` (chặn khi `completed/cancelled`): nếu đổi items mà `requiresRollbackToKho` thì snapshot serials cũ + reset `kho_pending` + xóa/chèn lại items + tính lại total/payment; luôn ghi history diff + audit + notify. `DELETE` hủy mềm: cần `order:cancel` + ownership + `canCancelOrder` (chặn `completed`); chuyển `cancelled`, xóa `shipments`, ghi history + audit + notify. |
 | `app/api/orders/by-invoice/[invoiceNo]/route.ts` | `GET` tra mã hóa đơn → `{id, invoice_no}` (khớp chính xác, fallback không phân biệt hoa/thường). Trang `/don-hang/[invoiceNo]` gọi API này rồi fetch tiếp `/api/orders/[id]` lấy chi tiết đầy đủ. Chưa login → `401`. |
 | `app/api/orders/track/[invoiceNo]/route.ts` | `GET` **công khai** cho khách (`?phone=`): nhân viên có session → trả `{order, staff: true}` không cần SĐT; khách thiếu SĐT → `{requirePhone: true}`, sai SĐT → `403`, **đúng SĐT → trả `{order: đầy đủ, verified: true}`** để hiện giao diện y hệt nhân viên (hóa đơn + lịch sử + thanh toán + vận chuyển). |
@@ -468,7 +474,7 @@ pcm-vanhanh/
 | `app/api/notifications/route.ts` | `GET` của chính mình (`requireUser`): `?limit≤100/offset/unread=1`, lấy `notifications WHERE user_id=mình` mới nhất + đếm `unread` → `{items, unread}` (`no-store`). Dùng bởi chuông header + trang thông báo. |
 | `app/api/notifications/read/route.ts` | `POST` của chính mình: `{all: true}` đánh dấu hết hoặc `{ids: string[≤100]}` theo id (luôn `AND user_id=mình` chống đánh dấu hộ). Thiếu cả hai → `400`. |
 
-### 6.4. `lib/` — nghiệp vụ lõi (10 files)
+### 6.4. `lib/` — nghiệp vụ lõi (11 files)
 
 | File | Giải thích chi tiết |
 |---|---|
@@ -481,6 +487,7 @@ pcm-vanhanh/
 | `lib/nav.ts` (147 dòng + href MPA) | Điều hướng theo role. `PRIMARY_NAV` (overview/deals/pipeline/team/reports/settings) và `OPERATION_NAV` (sale/warehouse/technical/warranty/shipping/shipper/accounting-orders) nay **mỗi mục có `href`** (`/tong-quan`, `/don-hang`, `/van-hanh/*`...). Helpers: `defaultSectionFor()`, `primaryNavFor()`, `operationNavFor()`, `canAccessSection()`, `hrefForSection()`, `sectionForPath(pathname)` (highlight sidebar + tiêu đề header), `defaultHrefFor()` (redirect sau login/guard). Sidebar + `DashboardShell` dùng để render menu Link và guard chuyển route (MPA, không còn `onSectionChange` kiểu SPA). |
 | `lib/types.ts` (183 dòng) | Hợp đồng type dùng chung. `Role` (8), `OrderStatus` (14), `PaymentStatus/Method`, `KmSource`, interfaces `User/AuthUser/Product/OrderItem/OrderStatusHistory/Payment/Shipment/Order`, `ROLE_LABELS`, `STATUS_LABELS` (label+badge+tone), `PAYMENT_STATUS_LABELS`. `AuthUser` tách riêng để client import type không dính server-only. |
 | `lib/ui.ts` (156 dòng) | Design system dùng chung. `Tone` (neutral/success/warning/danger/accent), `TONE_CHIP/TONE_SURFACE/TONE_TEXT/TONE_WASH`, `CHIP_BASE`, `chip()`, `ROLE_META` (label/short/icon mỗi role), `roleChip/roleLabel`, `SURFACE_CARD/FIELD_BASE/LABEL_BASE/SECTION_TITLE/SUBTITLE/TABLE_DIVIDER`. Nguyên tắc: ít viền, phân biệt bằng nền/khoảng cách. |
+| `lib/invoice.ts` (35 dòng) | Chuẩn mã hóa đơn `HD-XXX`: `formatInvoiceNo(sequence)` (pad tối thiểu 3 chữ số), `parseInvoiceSequence(value)` và `MAX_INVOICE_SEQUENCE_SQL` chỉ lấy `MAX(SUBSTRING(...))` trên các mã khớp `^HD-[0-9]+$` — bỏ qua mã legacy `HD-YYYYMMDD-XXX` để dãy mới bắt đầu từ 1. Dùng bởi API tạo đơn. |
 | `lib/utils.ts` (6 dòng) | `cn(...inputs) = twMerge(clsx(inputs))`. Gộp class Tailwind có điều kiện không xung đột. Dùng khắp UI. |
 
 ### 6.5. `components/` — UI nghiệp vụ
@@ -521,24 +528,21 @@ pcm-vanhanh/
 | File | Giải thích chi tiết |
 |---|---|
 | `components/dashboard/sidebar.tsx` | Sidebar fixed collapsible (260px/72px): logo PCM + 2 nhóm nav render bằng `<Link href={item.href}>` từ `primaryNavFor()/operationNavFor(roles)`. Active xác định bằng `activeSection` (do shell suy từ `usePathname()`). Không gọi API, lọc menu theo role. |
-| `components/dashboard/header.tsx` | Header sticky: tiêu đề section (map từ `activeSection`), `DateRangePicker`, search Enter → `router.push("/tim-kiem?q=")`, chuông dropdown, `UserMenu`. Gọi `GET /api/notifications?limit=6` + `POST /api/notifications/read`, bấm thông báo → `localStorage pcm_open_order` + `router.push("/don-hang")` (OrdersHub tự mở đơn khi mount). Nút Xem tất cả → `<Link href="/thong-bao">`. |
+| `components/dashboard/header.tsx` | Header sticky: tiêu đề section (map từ `activeSection`), `DateRangePicker` mặc định Hôm nay, search theo mã HĐ/SĐT/tên khách → `router.push("/tim-kiem?q=")`, chuông dropdown, `UserMenu`. Gọi `GET /api/notifications?limit=6` + `POST /api/notifications/read`, bấm thông báo → `localStorage pcm_open_order` + `router.push("/don-hang")` (OrdersHub tự mở đơn khi mount). Nút Xem tất cả → `<Link href="/thong-bao">`. |
 | `components/dashboard/dashboard-shell.tsx` | Shell dùng chung MPA: guard auth (spinner khi `isLoading`, nút Đăng nhập khi chưa login, `router.replace(defaultHrefFor)` khi sai role), `activeSection = sectionForPath(pathname)`, state `sidebarCollapsed/datePreset/dateRange` + `DashboardDateContext` (`useDashboardDate()`). Render `Sidebar + Header + {children}`. Mỗi chuyển Link là 1 route App Router riêng, không còn `activeView` kiểu SPA. |
 | `components/dashboard/section-wrappers.tsx` | 2 wrapper client (`OverviewWithDate`, `OrdersHubWithDate`) đọc date filter từ `useDashboardDate()` rồi truyền xuống section. Giúp page server (MPA) vẫn dùng được date của header. |
-| `components/dashboard/sections/orders-hub.tsx` | **Trung tâm vận hành chính.** Banner role, tabs admin (all/kho/ky_thuat/baohanh/ship/shipper), search + lọc status/payment, bảng đơn với action theo role (Xuất / Hoàn thành KT-BH / Phân ship / Bắt đầu-Giao xong / Thu tiền / Sửa-Xóa/In). Gọi `GET /api/orders?scope=&role_queue=&...`, `POST /:id/status`, `DELETE /:id`, `GET /:id` trước khi mở modal. Điều phối cả 7 modal. |
+| `components/dashboard/sections/orders-hub.tsx` | **Trung tâm vận hành chính.** Banner role, tabs admin (all/kho/ky_thuat/baohanh/ship/shipper), search debounce 300ms + lọc status/payment, bảng đơn với action theo role (Xuất / Hoàn thành KT-BH / Phân ship / Bắt đầu-Giao xong / Thu tiền / Sửa-Xóa/In). Khi có từ khóa, bỏ `from/to` để tìm toàn bộ thời gian; xóa từ khóa quay lại lọc ngày. Gọi `GET /api/orders?scope=&role_queue=&...`, `POST /:id/status`, `DELETE /:id`, `GET /:id` trước khi mở modal. Điều phối cả 7 modal. |
 | `components/dashboard/sections/overview.tsx` | Nhật ký Hoạt động vận hành (chỉ admin): chip lọc role + phân trang Xem thêm. Gọi `GET /api/admin/activity`. Giám sát, không thao tác đơn. |
 | `components/dashboard/sections/employees.tsx` | Quản lý Nhân viên & Vai trò + 2 tabs Danh sách/Audit. Gọi `GET /api/admin/users` (admin) / `GET /api/users` (thường), `GET /api/admin/audit-logs`, `POST/PATCH/DELETE /api/admin/users/:id`. Admin tạo/sửa/khóa/xóa + `temporaryPassword`. Quyết định hàng đợi đơn mỗi role thấy. |
 | `components/dashboard/sections/pipeline.tsx` | Thực chất là **Kho hàng** (tên cũ): search + lọc category + bảng SKU/tồn kho/trạng thái + form nhập SP cho `product:manage`. Gọi `GET/POST /api/products`. Cung cấp catalog cho create/edit-order. |
-| `components/dashboard/sections/deals.tsx` | **MOCK/demo legacy**, không gọi API (data `deals/productCatalog` cứng, giá lẫn VND/$). Bảng sale + popup chi tiết/nhật ký giả + tạo hóa đơn local. Đã thay bằng `orders-hub`. |
 | `components/dashboard/sections/customers.tsx` | **MOCK**: thẻ khách hàng US (`Acme/GlobalTech...`), health-score, tier filter local. Không gọi API, không nối đơn thật. |
 | `components/dashboard/sections/forecasting.tsx` | **MOCK** dự báo doanh thu (Recharts Area/Bar, KPI, scenario, riskFactors cứng + `setTimeout` loading). Không gọi API. |
 | `components/dashboard/sections/reports.tsx` | **MOCK** Giao dịch thu/chi/hoàn (`GD-240125...`), lọc local + nút Xuất báo cáo giả. Không gọi `payments` thật. |
 | `components/dashboard/sections/settings.tsx` | Tabs Hồ sơ (read-only từ `currentUser`, admin mới thấy Thông báo/Tích hợp mock) + Bảo mật mở `ChangePasswordDialog`. `handleSave` chỉ `setTimeout`, không lưu thật. |
 | `components/dashboard/notifications-page.tsx` | Trang Tất cả thông báo (nhóm Hôm nay/Hôm qua/Cũ hơn). Gọi `GET /api/notifications?limit=50` + `POST read`, click → đánh dấu đọc + dispatch `pcm:open-order` mở chi tiết đơn. Cầu nối thông báo → đơn. |
-| `components/dashboard/search-results.tsx` | Trang kết quả tìm kiếm mock (3 dòng Đơn/Khách/Giao dịch + nút đóng). Không gọi search API thật. |
+| `components/dashboard/search-results.tsx` | Trang kết quả tìm kiếm thật (`/tim-kiem?q=`): gọi `GET /api/orders?scope=all&limit=50&search=...` (không kèm `from/to`), hiển thị trạng thái/thanh toán/SĐT/ngày/tổng tiền, có loading/lỗi/rỗng và link mở chi tiết đơn. Tìm được mã HĐ, SĐT và tên khách trên toàn bộ thời gian. |
 | `components/dashboard/metric-card.tsx` | Card KPI generic (`title/value/change/icon`, trend up/down). Không gọi API. |
-| `components/dashboard/recent-deals.tsx` | List 5 deal mock (`Acme/TechStart...` won/pending/lost). Không gọi API. |
-| `components/dashboard/top-performers.tsx` | Bảng xếp hạng 5 sale mock + trophy. Không gọi API. |
-| `components/dashboard/date-range-picker.tsx` | Dropdown preset Hôm nay/3/7 ngày/Tùy chỉnh + 2 input date. Không gọi API, chỉ `onChange(preset, range)` để `orders-hub/overview` thêm `from/to`. |
+| `components/dashboard/date-range-picker.tsx` | Dropdown preset **Hôm nay** (mặc định) / **Tuần này** (Thứ Hai → hôm nay) / **Tháng này** (mùng 1 → hôm nay) / **Tùy chỉnh** + 2 input date. Không gọi API, chỉ `onChange(preset, range)` để `orders-hub/overview` thêm `from/to`; đóng bằng click ngoài/Escape. |
 | `components/dashboard/charts/revenue-chart.tsx` | AreaChart mock `revenue vs target` 12 tháng. Trang trí. |
 | `components/dashboard/charts/pipeline-overview.tsx` | Progress 4 stage mock (Lead 45%...$4.8M). Không phản ánh status đơn thật. |
 
@@ -555,7 +559,7 @@ pcm-vanhanh/
 | `avatar.tsx` | Avatar + fallback chữ. |
 | `badge.tsx` | Badge/chip nhỏ (dùng cho status/payment/role). |
 | `breadcrumb.tsx` | Breadcrumb điều hướng. |
-| `button.tsx` | Button mọi biến thể (dùng khắp modals/bảng). |
+| `button.tsx` | **Nguồn nút duy nhất toàn dự án**: `buttonVariants()` + `Button` với variant nền (`default`, `secondary`, `outline`, `ghost`, `link`, `destructive`, `accent-soft`, `success-soft`, `warning-soft`, `danger-soft`, `paper`, `paper-primary`) và size (`xs/sm/default/lg/icon/icon-sm/icon-xs`). Mọi action button dùng component này; chỉ hàng/card click được hoặc trigger nội bộ Radix mới dùng `<button>` thô. |
 | `button-group.tsx` | Nhóm nút liền nhau. |
 | `calendar.tsx` | Lịch (react-day-picker) cho date picker. |
 | `card.tsx` | Card + Header/Content/Footer. |
@@ -609,6 +613,7 @@ pcm-vanhanh/
 | File | Giải thích chi tiết |
 |---|---|
 | `hooks/use-toast.ts` | Store toast global (`memoryState` + `listeners`, `TOAST_LIMIT=1`, `REMOVE_DELAY` lớn). `toast()/update/dismiss` + reducer `ADD/UPDATE/DISMISS/REMOVE_TOAST`. Dùng với `ui/toast.tsx/toaster.tsx`. |
+| `hooks/use-debounced-value.ts` | `useDebouncedValue(value, delayMs=300)`: trả giá trị trễ sau `delay`, reset timer khi input đổi, cleanup khi unmount. Dùng cho ô tìm kiếm đơn hàng để không gọi API mỗi lần gõ. |
 | `hooks/use-mobile.ts` | `useIsMobile()`: `matchMedia(max-width:767px)` + `innerWidth<768`, khởi tạo `undefined` rồi sync trong `useEffect`, cleanup listener. Dùng cho sidebar/modal responsive. |
 | `components/ui/use-mobile.tsx` / `components/ui/use-toast.ts` | Re-export 2 hooks trên cho alias shadcn (`@/components/ui/...`). Không logic riêng. |
 
@@ -616,15 +621,16 @@ pcm-vanhanh/
 
 | File | Giải thích chi tiết |
 |---|---|
-| `migrations/0001_initial_schema.sql` | Dựng lõi: `users` (role đơn NOT NULL), `products`, `orders` (tags JSON, status 14, payment 3), `order_items(serial)`, `history/payments/shipments` + index cơ bản. Nền luồng kho→KT→BH→ship. |
+| `migrations/0001_initial_schema.sql` | Dựng lõi: `users` (role đơn NOT NULL), `products`, `orders` (tags JSON, status 14, payment 3), `order_items(serial)`, `history/payments/shipments` + index cơ bản. Nền luồng kho→KT→BH→ship. Các `REFERENCES` khai báo ở cấp cột chỉ để tài liệu — MariaDB bỏ qua, FK thật nằm ở 0010. |
 | `migrations/0003_auth_accounts.sql` | Thêm login: mở rộng `users(username/password_hash/must_change_password/last_login/lock...)`, tạo `sessions(id=sha256)` + `auth_audit_log`. (Không có file 0002 trong repo.) |
 | `migrations/0004_simplify_password.sql` | Đơn giản hóa pass: drop `must_change_password`, reset lock counters. Từ đây chấp nhận mọi pass 1–128 ký tự. |
 | `migrations/0005_order_address_item_warranty.sql` | Thêm `orders.customer_address TEXT` + `order_items.warranty_months INT DEFAULT 36 CHECK≥0`. Phục vụ địa chỉ giao + BH từng linh kiện. |
-| `migrations/0006_user_roles.sql` | Đa role: tạo `user_roles(user_id,role)` PK复合 + migrate `INSERT IGNORE ... SELECT id,role FROM users`. Giữ `users.role` tương thích ngược. |
+| `migrations/0006_user_roles.sql` | Đa role: tạo `user_roles(user_id,role)` khoá chính ghép + migrate `INSERT IGNORE ... SELECT id,role FROM users`. Giữ `users.role` tương thích ngược. |
 | `migrations/0007_drop_role_not_null.sql` | Nới `users.role` từ `NOT NULL` → `NULL` (nguồn thật ở `user_roles`). Giữ CHECK 8 giá trị role. |
 | `migrations/0008_security_indexes.sql` | Index hiệu năng (không đổi schema): `orders(invoice_date/payment_status/created_at)`, `history(created_at)`, `products(name)`. |
-| `migrations/0009_notifications.sql` | Tạo `notifications(user_id/order_id/invoice_no/kind/title/message/is_read)` FK cascade + 3 index (`user`, `(user,is_read)`, `order_id`) cho chuông nhanh. |
-| `scripts/migrate.ts` | Hiện là **stub**: chỉ check `DATABASE_URL` + `SELECT 1`, in `MySQL migrations are up to date`. Không tự chạy `migrations/*.sql`; tạo schema thật靠 `setup-basic.sql` hoặc chạy SQL tay (`lib/db.ts` có auto-apply khi chạy app). |
+| `migrations/0009_notifications.sql` | Tạo `notifications(user_id/order_id/invoice_no/kind/title/message/is_read)` + 3 index (`user`, `(user,is_read)`, `order_id`) cho chuông nhanh. |
+| `migrations/0010_foreign_keys.sql` | Bổ sung **khoá ngoại thật** cho toàn bộ quan hệ (orders/items/history/payments/shipments/sessions/user_roles/audit/notifications) + unique `shipments.order_id`. Cần thiết vì MariaDB bỏ qua `REFERENCES` ở cấp cột trong 0001. |
+| `scripts/migrate.ts` | Kết nối MySQL, gọi `getDb()` để `lib/db.ts` tự áp dụng các migration còn thiếu (ghi vào `schema_migrations`), in `MySQL migrations are up to date`. Chạy lại an toàn. |
 | `scripts/create-admin.ts` | Tạo admin đầu từ `ADMIN_*`: check policy + hash PBKDF2. Username/email đã tồn tại + role admin → skip; thuộc non-admin → báo lỗi (tránh ghi đè). |
 | `scripts/set-user-password.ts` | CLI `npm run user:password -- <username> [passMoi]` (không truyền thì sinh ngẫu nhiên). Update hash → mở khóa/mở active → xóa sessions → audit `password_reset`. Dùng khi mất admin. |
 | `scripts/test-order-flow.ts` | Unit thuần `lib/state-machine` (không cần DB): routing tags sau `kho_done`, `requiresRollbackToKho`, `shouldCompleteOrder`. Fail case nào → `exit(1)`. Chạy `npm run test:flow`. |
@@ -632,7 +638,7 @@ pcm-vanhanh/
 | `scripts/scrape-pcmarket.ts` | Đồng bộ catalog từ `pcmarket.vn` vào `products` (fetch HTML + regex `p-item/p-name/p-price`, upsert theo `sku`). Args `--cats --pages(≤50) --stock --dry-run`, delay 500–800ms, map ~80 category CPU/Main/VGA/RAM/Case/PSU/SSD/Monitor. |
 | `scripts/db-create.ps1` | Chỉ tạo DB: hỏi pass root 3 lần → pipe `create-database.sql` vào `mysql`. Tạo 2 DB `pcm_vanhanh` + `pcm_vanhanh_test` (`utf8mb4_unicode_ci`). |
 | `scripts/create-database.sql` | 2 lệnh `CREATE DATABASE IF NOT EXISTS` cho `pcm_vanhanh` + `pcm_vanhanh_test`. Dùng via `mysql` hoặc copy/paste phpMyAdmin. |
-| `scripts/setup-basic.sql` | Dựng nhanh schema trạng thái cuối (users/user_roles/products/orders/items/history/payments/shipments/sessions/audit/notifications) + indexes + `schema_migrations` + admin mặc định. Chạy app ngay không cần migrate từng bước, không chứa dữ liệu mẫu. |
+| `scripts/setup-basic.sql` | Dựng nhanh schema trạng thái cuối (users/user_roles/products/orders/items/history/payments/shipments/sessions/audit/notifications) + indexes + `schema_migrations`. **Không còn seed admin mặc định**; sau khi import chạy `npm run db:admin` và `npm run db:migrate` để bổ sung FK 0010. Không chứa dữ liệu mẫu. |
 
 ### 6.9. `public/`
 
@@ -684,24 +690,25 @@ Hàng đợi mặc định (`getRoleQueueStatuses`): `kho → [new, kho_pending]
 |---|---|
 | `npm run dev` | Chạy dev `localhost:3000`. |
 | `npm run build` / `npm run start -- --hostname 127.0.0.1 --port 3000` | Build + chạy prod local (trước Caddy). |
-| `npm run db:migrate` | Stub check kết nối (schema thật靠 `setup-basic.sql` / auto-apply ở `lib/db.ts`). |
-| `npm run db:admin` | Tạo admin đầu từ `ADMIN_*`. |
+| `npm run db:migrate` | Áp dụng các migration còn thiếu trong `migrations/` (kể cả 0010 FK), ghi vào `schema_migrations`. Chạy lại an toàn. |
+| `npm run db:admin` | Tạo admin đầu từ `ADMIN_*` (chỉ lần đầu). |
+| `npm run typecheck` | Kiểm tra TypeScript (`tsc --noEmit`). |
 | `npm run test:flow` | Test state-machine, không cần DB. |
 | `npm run test:auth` | Test auth, cần `.env.test` + DB `_test`. |
-| `npm run user:password -- admin ["123"]` | Reset pass khi mất admin (mở khóa + xóa sessions). |
+| `npm run user:password -- admin ["MatKhauMoi123"]` | Reset pass khi mất admin (mở khóa + kích hoạt + xóa sessions). |
 | `npm run products:scrape` | Cào `pcmarket.vn` nạp catalog (`--dry-run` để thử). |
-| `powershell -File scripts/db-create.ps1` | Chỉ tạo 2 DB (không seed). |
+| `npm run db:create` (hoặc `powershell -File scripts/db-create.ps1`) | Chỉ tạo 2 DB (không seed). |
 | `caddy run --config .\Caddyfile` | Chạy reverse proxy HTTPS (sau khi sửa domain). |
 
 ---
 
 ## 9. Triển khai & vận hành
 
-1. **Dev Windows:** cài Node 22 LTS + XAMPP (bật Apache + MySQL) → `Copy-Item .env.example .env` (nếu có)/`notepad .env` → `npm ci` → tạo DB `pcm_vanhanh` (`utf8mb4_unicode_ci`) → `npm run db:migrate` → `npm run db:admin` → `npm run dev` → mở `localhost:3000`.
-2. **Test:** tạo `pcm_vanhanh_test` → `Copy-Item .env.test.example .env.test` → điền `TEST_DATABASE_URL` → `npm run test:flow` (nhanh) + `npm run test:auth` (cần DB test).
+1. **Dev Windows:** cài Node 22 LTS + XAMPP (chỉ cần MySQL; Apache cho phpMyAdmin) → `npm run db:create` → `Copy-Item .env.example .env` + `notepad .env` → `npm ci` → `npm run db:migrate` → `npm run db:admin` → `npm run dev` → mở `localhost:3000`. Chi tiết: `docs/CHAY-LAN-DAU.md`.
+2. **Test:** `db:create` đã tạo `pcm_vanhanh_test` → `Copy-Item .env.test.example .env.test` → điền `TEST_DATABASE_URL` → `npm run test:flow` (nhanh) + `npm run test:auth` (cần DB test) + `npm run typecheck`.
 3. **Prod máy công ty:** `.env` điền `DATABASE_URL`/pass admin mạnh/`PG_POOL_MAX=15`; sửa `Caddyfile` domain thật; `npm ci` → `db:migrate` → `db:admin` → `npm run build`; PowerShell 1 chạy `next start` bind `127.0.0.1:3000`, PowerShell 2 chạy `caddy run`; cấu hình Task Scheduler **At startup** + MySQL khởi động trước app.
 4. **Mạng:** DNS `A` → IP public, router forward TCP `80/443` tới máy chủ (IP LAN tĩnh), firewall mở `80/443` (hoặc allow `caddy.exe`), **không** mở `3306` ra Internet, kiểm tra CGNAT, UPS + backup ngoài máy.
-5. **Backup:** `New-Item -Force .\backups; mysqldump -u root -p pcm_vanhanh > .\backups\pcm_vanhanh-<stamp>.sql`, lưu bản mã hóa ngoài máy, thử restore định kỳ. Cập nhật code: pull → `npm ci` → `db:migrate` → `build` → restart Next.js.
+5. **Backup:** `& "C:\xampp\mysql\bin\mysqldump.exe" -u root -p --result-file=".\backups\pcm_vanhanh-<stamp>.sql" pcm_vanhanh`, lưu bản mã hóa ngoài máy, thử restore định kỳ. Cập nhật code: pull → `npm ci` → `db:migrate` → `build` → restart Next.js.
 
 ---
 

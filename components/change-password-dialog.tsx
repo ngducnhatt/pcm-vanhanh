@@ -135,7 +135,7 @@ export function ChangePasswordDialog({
           )}
 
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
               Huỷ
             </Button>
             <Button type="submit" disabled={isSubmitting}>

@@ -1,9 +1,9 @@
 "use client";
 
-import React from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Order } from "@/lib/types";
 import { Printer, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { HoDonForm, orderToHoDonLines } from "@/components/orders/hoadon-form";
 
 interface PrintInvoiceModalProps {
@@ -26,19 +26,24 @@ export function PrintInvoiceModal({ order, isOpen, onClose }: PrintInvoiceModalP
             Xem hóa đơn đặt hàng
           </DialogTitle>
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              type="button"
+              variant="paper-primary"
+              size="sm"
               onClick={() => window.print()}
-              className="flex items-center gap-1.5 rounded bg-blue-700 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-800"
+              className="font-semibold"
             >
               <Printer className="h-4 w-4" /> In hóa đơn
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
+              variant="paper"
+              size="icon-sm"
               onClick={onClose}
               aria-label="Đóng"
-              className="rounded p-2 text-slate-600 hover:bg-slate-100"
             >
               <X className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2 sm:p-4 print:overflow-visible print:p-0">

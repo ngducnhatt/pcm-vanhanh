@@ -3,14 +3,14 @@ import { NextResponse, type NextRequest } from 'next/server';
 const SESSION_COOKIE_NAME = 'pcm_session';
 
 /**
- * Route protection.
+ * Route protection (Next.js 16 "proxy" convention, formerly middleware.ts).
  *
- * This runs on the edge runtime, so it can only check that a session cookie is
- * *present*. The real verification (hashed lookup in the sessions table,
- * expiry, is_active) happens server-side in `requireUser()` on every API route
- * and in `getCurrentUser()` for server components.
+ * This only checks that a session cookie is *present*. The real verification
+ * (hashed lookup in the sessions table, expiry, is_active) happens server-side
+ * in `requireUser()` on every API route and in `getCurrentUser()` for server
+ * components.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSessionCookie = Boolean(request.cookies.get(SESSION_COOKIE_NAME)?.value);
   const isApi = pathname.startsWith('/api');
@@ -61,7 +61,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   // Phai cho qua ca file font (woff2/woff/ttf/otf): trang /login chua co cookie
-  // nen neu khong loai chung, middleware se redirect file font ve /login va
+  // nen neu khong loai chung, proxy se redirect file font ve /login va
   // trang dang nhap se khong tai duoc font.
   matcher: [
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|ttf|otf|eot)$).*)',

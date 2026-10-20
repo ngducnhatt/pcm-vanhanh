@@ -40,7 +40,7 @@ export interface PrimaryNavItem {
 export const PRIMARY_NAV: PrimaryNavItem[] = [
   { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard, roles: ['admin'], href: '/tong-quan' },
   { id: 'deals', label: 'Trung tâm đơn hàng', icon: ShoppingCart, roles: [], href: '/don-hang' },
-  { id: 'pipeline', label: 'Kho & Linh kiện', icon: Cpu, roles: [], href: '/kho-linh-kien' },
+  { id: 'pipeline', label: 'Kho & Linh kiện', icon: Cpu, roles: [], href: '/kho' },
   { id: 'team', label: 'Nhân viên & Vai trò', icon: Users, roles: ['admin'], href: '/nhan-su' },
   { id: 'reports', label: 'Báo cáo doanh thu', icon: ReceiptText, roles: ['admin'], href: '/bao-cao' },
   { id: 'settings', label: 'Cài đặt', icon: Settings, roles: [], href: '/cai-dat' },

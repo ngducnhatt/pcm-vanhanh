@@ -128,9 +128,9 @@ sequenceDiagram
 | Thu hồi phiên | Đổi mật khẩu, đổi vai trò, đổi tên đăng nhập, vô hiệu hoạt → xoá **toàn bộ** phiên của tài khoản đó |
 | Chống tự khoá | Admin không thể tự vô hiệu hoạt / tự hạ quyền, hệ thống luôn giữ ≥ 1 tài khoản Admin hoạt động |
 | Nhật ký | Mọi thao tác đăng nhập và quản trị tài khoản được ghi vào `auth_audit_log` |
-| Bảo vệ route | `middleware.ts` chặn mọi trang/API khi thiếu cookie → redirect `/login` hoặc trả 401. Xác thực thật diễn ra server-side qua `requireUser()` |
+| Bảo vệ route | `proxy.ts` (Next.js 16, trước là `middleware.ts`) chặn mọi trang/API khi thiếu cookie → redirect `/login` hoặc trả 401. Xác thực thật diễn ra server-side qua `requireUser()` |
 
-> Middleware chạy ở edge runtime nên chỉ kiểm tra **sự hiện diện** của cookie. Việc tra cứu `sessions`, kiểm tra hạn và `is_active` được thực hiện ở server (`lib/auth.ts`) cho mọi API route.
+> `proxy.ts` chạy trước khi route render nên chỉ kiểm tra **sự hiện diện** của cookie. Việc tra cứu `sessions`, kiểm tra hạn và `is_active` được thực hiện ở server (`lib/auth.ts`) cho mọi API route.
 
 ### 3.3. Tài khoản quản trị ban đầu
 
@@ -186,11 +186,12 @@ Lệnh này cũng mở khoá tài khoản, kích hoạt lại tài khoản bị 
 
 ## 4. Cấu Trúc Database (MySQL/MariaDB)
 
-- **users**: `id, name, phone, email, role, is_active, created_at` + `username, password_hash, last_login_at, failed_login_count, locked_until, updated_at`
+- **users**: `id, name, phone, email, is_active, created_at` + `username, password_hash, last_login_at, failed_login_count, locked_until, updated_at`
+- **user_roles**: `user_id, role` (một tài khoản có thể có nhiều vai trò)
 - **sessions**: `id (sha256 token), user_id, user_agent, ip, created_at, last_seen_at, expires_at`
 - **auth_audit_log**: `id, actor_user_id, actor_name, action, target_user_id, target_name, detail, ip, created_at`
 - **products**: `id, sku, name, unit_price, stock_qty, category, created_at`
-- **orders**: `id, invoice_no, invoice_date, customer_name, customer_phone, customer_address, customer_email, tags, note, sales_user_id, status, payment_status, related_order_id, total_amount, paid_amount, created_at, updated_at`
+- **orders**: `id, invoice_no (mã mới dạng HD-XXX), invoice_date, customer_name, customer_phone, customer_address, customer_email, tags, note, sales_user_id, status, payment_status, related_order_id, total_amount, paid_amount, created_at, updated_at`
 - **order_items**: `id, order_id, product_id, quantity, unit_price, warranty_months, serial_number, created_at`
 - **order_status_history**: `id, order_id, status, changed_by_user_id, note, snapshot_serials, created_at`
 - **payments**: `id, order_id, method ("qr" | "cash" | "transfer"), amount, collected_by_user_id, paid_at`
@@ -214,44 +215,69 @@ Lệnh này cũng mở khoá tài khoản, kích hoạt lại tài khoản bị 
    - Tự động ước lượng và tính km giao hàng, hỗ trợ ô nhập tay override khi cần điều chỉnh thực tế.
 5. **Cơ Chế Rollback & Snapshot Serials An Toàn**:
    - Khi kinh doanh sửa đơn sau xuất kho, toàn bộ serials cũ được đóng gói vào snapshot JSON trong lịch sử trước khi rollback về kho.
+6. **Mã Hóa Đơn Chuẩn `HD-XXX`**:
+   - Đơn mới sinh mã `HD-001`, `HD-002`... từ số thứ tự 1, có retry chống trùng khi nhiều người tạo đơn cùng lúc.
+   - Đơn cũ dạng `HD-YYYYMMDD-XXX` hoặc mã số vẫn tra cứu bình thường và không làm lệch dãy số mới.
+7. **Bộ Lọc Ngày Mặc Định "Hôm nay"**:
+   - Header có sẵn **Hôm nay / Tuần này / Tháng này / Tùy chỉnh**; tuần bắt đầu từ Thứ Hai.
+   - Đổi preset áp dụng ngay cho Tổng quan và Trung tâm đơn hàng.
+8. **Tìm Kiếm Đơn Hàng Thông Minh**:
+   - Tìm theo **mã hóa đơn** (`HD-001`, `hd001`, `HD 001`), **số điện thoại** (có/không khoảng trắng, dấu chấm, gạch ngang) hoặc **tên khách**.
+   - Khi đang tìm kiếm, hệ thống bỏ qua bộ lọc ngày để không bỏ sót đơn cũ; xóa từ khóa sẽ quay lại đúng khoảng ngày đang chọn.
+9. **Giao Diện Nút Thống Nhất**:
+   - Toàn bộ nút hành động dùng chung `components/ui/button.tsx` với các variant ngữ nghĩa (`accent-soft`, `success-soft`, `warning-soft`, `danger-soft`, `paper`, `paper-primary`...) và size phù hợp bảng dày, modal, hóa đơn giấy.
+   - Nút trong bảng, modal, form, header và sidebar có cùng bo góc, chiều cao, trạng thái hover/focus/disabled.
 
 ---
 
 ## 6. Hướng Dẫn Cài Đặt & Chạy Thử
 
-### Chạy local trên Windows (không dùng Docker)
+### Chạy local trên Windows (XAMPP) — lần đầu
 
-Cài Node.js 22 LTS và XAMPP trực tiếp trên Windows. Bật module **Apache** và **MySQL** trong XAMPP Control Panel.
+Hướng dẫn đầy đủ từng bước, kèm xử lý lỗi: **[`docs/CHAY-LAN-DAU.md`](docs/CHAY-LAN-DAU.md)**.
 
-Mở PowerShell tại thư mục dự án:
+Tóm tắt:
+
+1. Cài **Node.js >= 22.5** (khuyến nghị 22 LTS) và **XAMPP 8.2+**.
+2. Mở XAMPP Control Panel → **Start** dòng **MySQL**. Apache chỉ cần nếu dùng phpMyAdmin.
+3. Tại thư mục dự án:
 
 ```powershell
+npm run db:create          # tạo pcm_vanhanh + pcm_vanhanh_test
 Copy-Item .env.example .env
-notepad .env
+notepad .env               # sửa DATABASE_URL và ADMIN_*
 npm ci
-```
-
-Trong `.env`, cấu hình `DATABASE_URL` tới MySQL (XAMPP) local, ví dụ `mysql://root:yourpassword@localhost:3306/pcm_vanhanh`. Dùng mật khẩu chỉ gồm chữ và số để tránh cần URL-encode ký tự đặc biệt. Điền `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME` và `ADMIN_PASSWORD`.
-
-Mở phpMyAdmin (`http://localhost/phpmyadmin`) hoặc MySQL client, kết nối bằng tài khoản `root`, rồi tạo database:
-
-```sql
-CREATE DATABASE pcm_vanhanh CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
-
-Trong PowerShell:
-
-```powershell
-npm run db:migrate
-npm run db:admin
+npm run db:migrate         # áp dụng 0001, 0003–0010
+npm run db:admin           # tạo admin đầu tiên từ ADMIN_*
 npm run dev
 ```
 
-Mở `http://localhost:3000`; dừng server bằng `Ctrl+C`. Mọi dữ liệu nghiệp vụ được lưu trong MySQL/MariaDB (XAMPP).
+4. Trong `.env`, cấu hình `DATABASE_URL` tới MySQL XAMPP:
+
+```dotenv
+# Root không có mật khẩu (mặc định XAMPP)
+DATABASE_URL=mysql://root:@localhost:3306/pcm_vanhanh
+```
+
+Nếu root có mật khẩu, ví dụ `Abc123`: `mysql://root:Abc123@localhost:3306/pcm_vanhanh`.
+Mật khẩu có ký tự đặc biệt (`@ : / ? # % &`) phải URL-encode — xem hướng dẫn chi tiết.
+
+Điền thêm `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_PHONE` để tạo admin.
+
+5. Mở `http://localhost:3000`, đăng nhập bằng tài khoản admin, rồi **đổi mật khẩu ngay**.
+
+Lưu ý:
+
+- `npm run db:migrate` tự đọc `migrations/*.sql`, ghi tiến độ vào `schema_migrations`, chạy lại an toàn. Migration `0010` bổ sung khoá ngoại thật cho MariaDB/XAMPP.
+- `npm run db:admin` chỉ tạo tài khoản **lần đầu**; nếu admin đã tồn tại, mật khẩu trong `.env` không được áp dụng lại. Quên mật khẩu: `npm run user:password -- admin`.
+- **Không commit `.env`** (chứa mật khẩu thật). File mẫu là `.env.example`.
+- Có thể chạy tự động toàn bộ bước trên bằng `.\setup.ps1` (hỏi mật khẩu root, tạo DB, sinh `.env`, migrate, tạo admin, chạy dev).
 
 #### Chạy kiểm thử
 
-`npm run test:flow` kiểm thử quy tắc chuyển trạng thái, không cần database. Kiểm thử đăng nhập cần MySQL/MariaDB (XAMPP) database riêng, tuyệt đối không dùng database production:
+`npm run test:flow` kiểm thử quy tắc chuyển trạng thái, không cần database. `npm run typecheck` kiểm tra TypeScript. `npm run build` build production.
+
+Kiểm thử đăng nhập cần MySQL/MariaDB (XAMPP) database riêng, tuyệt đối không dùng database production:
 
 ```sql
 CREATE DATABASE pcm_vanhanh_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -317,9 +343,12 @@ Khi DNS và port forwarding đúng, Caddy tự xin chứng chỉ TLS. Để ch�
 Sao lưu database thủ công bằng MySQL/MariaDB (XAMPP) client:
 
 ```powershell
-New-Item -ItemType Directory -Force .\backups
+New-Item -ItemType Directory -Force .\backups | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-mysqldump -u root -p pcm_vanhanh > .\backups\pcm_vanhanh-$stamp.sql
+
+& "C:\xampp\mysql\bin\mysqldump.exe" -u root -p `
+  --result-file=".\backups\pcm_vanhanh-$stamp.sql" `
+  pcm_vanhanh
 ```
 
-`mysqldump` sẽ hỏi mật khẩu database. Lưu thêm bản sao mã hóa ngoài máy chủ và thử khôi phục định kỳ. Khi cập nhật code, lấy source mới, chạy `npm ci`, `npm run db:migrate`, `npm run build`, rồi khởi động lại Next.js.
+`mysqldump` sẽ hỏi mật khẩu database. Dùng `--result-file` thay vì `>` để tránh PowerShell 5.1 ghi file UTF-16 làm hỏng SQL. Lưu thêm bản sao mã hóa ngoài máy chủ và thử khôi phục định kỳ. Khi cập nhật code, lấy source mới, chạy `npm ci`, `npm run db:migrate`, `npm run build`, rồi khởi động lại Next.js.

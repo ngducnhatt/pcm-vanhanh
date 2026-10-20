@@ -4,7 +4,8 @@ import { requireUser, writeAuditLog } from '@/lib/auth';
 import { notifyOrderEvent } from '@/lib/notifications';
 import { can, statusFromError } from '@/lib/permissions';
 import { getRoleQueueStatuses } from '@/lib/state-machine';
-import { Order, OrderItem, OrderStatus, PaymentStatus, Role } from '@/lib/types';
+import { formatInvoiceNo, MAX_INVOICE_SEQUENCE_SQL } from '@/lib/invoice';
+import { Order, OrderStatus, PaymentStatus, Role } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
   try {
@@ -84,11 +85,21 @@ export async function GET(request: NextRequest) {
       params.push(shipperIdParam);
     }
 
-    // Filter by search keyword
+    // Tìm theo mã hoá đơn, tên khách hoặc số điện thoại.
+    // - Mã HĐ: so khớp cả "HD-001" lẫn "hd001"/"HD 001".
+    // - SĐT: bỏ khoảng trắng, dấu chấm, gạch ngang trước khi so khớp để
+    //   "0901 234 567" và "0901234567" tìm ra cùng một đơn.
     if (search) {
-      query += ' AND (o.invoice_no LIKE ? OR o.customer_name LIKE ? OR o.customer_phone LIKE ?)';
       const term = `%${search}%`;
-      params.push(term, term, term);
+      const compact = search.replace(/[\s.-]/g, '');
+      const digits = search.replace(/\D/g, '');
+      query += ` AND (
+        o.invoice_no LIKE ?
+        OR REPLACE(REPLACE(o.invoice_no, ' ', ''), '-', '') LIKE ?
+        OR o.customer_name LIKE ?
+        OR REPLACE(REPLACE(REPLACE(o.customer_phone, ' ', ''), '-', ''), '.', '') LIKE ?
+      )`;
+      params.push(term, `%${compact || search}%`, term, digits ? `%${digits}%` : term);
     }
 
     // Filter by tag
@@ -275,7 +286,7 @@ export async function POST(request: NextRequest) {
     const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const dateStr = new Date().toISOString().split('T')[0];
 
-    // Mã đơn: số tăng dần từ 1 (logic sinh ở dưới, có retry chống trùng khi 2 request song song)
+    // Mã đơn: HD-001, HD-002... (logic sinh ở dưới, có retry chống trùng khi 2 request song song)
     const ALLOWED_METHODS = ['qr', 'cash', 'transfer'];
     const payMethod = initial_payment?.method || 'cash';
     if (initial_payment && !ALLOWED_METHODS.includes(payMethod)) {
@@ -318,16 +329,16 @@ export async function POST(request: NextRequest) {
       `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 7)}`;
 
     // Tạo đơn trong transaction + retry invoice_no khi trùng (chống race MAX+1).
-    // Mã đơn là số tăng dần từ 1 (1, 2, 3, ...). Đơn cũ định dạng HD-ngày-XXX
-    // khi CAST sang số ra 0 nên dãy mới vẫn bắt đầu từ 1 mà không đụng đơn cũ.
+    // Mã mới có dạng HD-XXX, bắt đầu từ HD-001. Đơn cũ dạng "1" hoặc
+    // "HD-ngày-XXX" không tham gia dãy số mới nên không bị đụng mã.
     let invoiceNo = '';
     try {
       const created = await withTransaction(async (query) => {
         let attemptInvoice = '';
         for (let attempt = 0; attempt < 5; attempt++) {
-          const maxRows: any = await query('SELECT MAX(CAST(invoice_no AS UNSIGNED)) AS max_no FROM orders', []);
+          const maxRows: any = await query(MAX_INVOICE_SEQUENCE_SQL, []);
           const nextNo = Number(maxRows?.[0]?.max_no || 0) + 1 + attempt;
-          attemptInvoice = String(nextNo);
+          attemptInvoice = formatInvoiceNo(nextNo);
           try {
             await query(
               `INSERT INTO orders (
